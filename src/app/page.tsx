@@ -26,26 +26,31 @@ export default async function Home() {
   console.log('PROFILE:', profile)
   console.log('PROFILE ERROR:', profileError)
 
-  const { data: schede = [] } = await supabase
+  const { data: schedeData } = await supabase
     .from('schede')
     .select('id, titolo, tipo, ordine')
     .order('ordine', { ascending: true })
 
-  const { data: schedeVoci = [] } = await supabase
+  const { data: schedeVociData } = await supabase
     .from('schede_voci')
     .select('id, scheda_id, testo, ordine')
     .order('scheda_id', { ascending: true })
     .order('ordine', { ascending: true })
 
-  const { data: aziende = [] } = await supabase
+  const { data: aziendeData } = await supabase
     .from('aziende')
     .select('id, ragione_sociale, piva, sede')
     .order('ragione_sociale', { ascending: true })
 
-  const { data: registrazioni = [] } = await supabase
+  const { data: registrazioniData } = await supabase
     .from('registrazioni')
     .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload')
     .order('data', { ascending: false })
+
+  const schede = schedeData ?? []
+  const schedeVoci = schedeVociData ?? []
+  const aziende = aziendeData ?? []
+  const registrazioni = registrazioniData ?? []
 
   return (
     <main className="min-h-screen bg-slate-100 p-10">
