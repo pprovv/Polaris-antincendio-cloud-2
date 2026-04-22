@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { createClient } from '@/lib/supabase/client'
+import { writeAuditLog } from '@/lib/audit-log'
 
 type Scheda = {
   id: string
@@ -387,15 +388,41 @@ export default function AppClient({
     }
 
     const query = scadenzaInModificaId
-      ? supabase.from('scadenze').update(values).eq('id', scadenzaInModificaId)
-      : supabase.from('scadenze').insert(values)
+      ? supabase
+          .from('scadenze')
+          .update(values)
+          .eq('id', scadenzaInModificaId)
+          .select('id, azienda_id, titolo, data, stato, priorita, categoria, ricorrenza')
+          .single()
+      : supabase
+          .from('scadenze')
+          .insert(values)
+          .select('id, azienda_id, titolo, data, stato, priorita, categoria, ricorrenza')
+          .single()
 
-    const { error } = await query
+    const { data: scadenzaRow, error } = await query
 
     if (error) {
       setErrore(error.message)
       return
     }
+
+    await writeAuditLog({
+      aziendaId: scadenzaRow?.azienda_id ?? aziendaEffettiva,
+      azione: scadenzaInModificaId ? 'UPDATE' : 'INSERT',
+      tabella: 'scadenze',
+      recordId: scadenzaRow?.id ?? scadenzaInModificaId,
+      dettagli: {
+        titolo: scadenzaRow?.titolo ?? titoloScadenza.trim(),
+        data: scadenzaRow?.data ?? dataScadenza,
+        stato: scadenzaRow?.stato ?? 'da_fare',
+        priorita: scadenzaRow?.priorita ?? prioritaScadenza,
+        categoria: scadenzaRow?.categoria ?? categoriaScadenza,
+        ricorrenza: scadenzaRow?.ricorrenza ?? ricorrenzaScadenza,
+        descrizione: descrizioneScadenza.trim() || null,
+        note: noteScadenza.trim() || null,
+      },
+    })
 
     setStatus(scadenzaInModificaId ? 'Scadenza aggiornata' : 'Scadenza salvata')
     resetFormScadenza()
@@ -417,12 +444,15 @@ export default function AppClient({
   }
 
   async function handleCompletaScadenza(id: string) {
+    const scadenzaDaCompletare = scadenze.find((s) => s.id === id) || null
+    const completataIl = new Date().toISOString()
+
     const supabase = createClient()
     const { error } = await supabase
       .from('scadenze')
       .update({
         stato: 'completata',
-        completata_il: new Date().toISOString(),
+        completata_il: completataIl,
       })
       .eq('id', id)
 
@@ -431,6 +461,20 @@ export default function AppClient({
       return
     }
 
+    await writeAuditLog({
+      aziendaId: scadenzaDaCompletare?.azienda_id ?? null,
+      azione: 'UPDATE',
+      tabella: 'scadenze',
+      recordId: id,
+      dettagli: {
+        titolo: scadenzaDaCompletare?.titolo ?? null,
+        data: scadenzaDaCompletare?.data ?? null,
+        stato_precedente: scadenzaDaCompletare?.stato ?? null,
+        nuovo_stato: 'completata',
+        completata_il: completataIl,
+      },
+    })
+
     setStatus('Scadenza completata')
     await loadData()
   }
@@ -438,6 +482,8 @@ export default function AppClient({
   async function handleAnnullaScadenza(id: string) {
     const ok = window.confirm('Vuoi annullare questa scadenza?')
     if (!ok) return
+
+    const scadenzaDaAnnullare = scadenze.find((s) => s.id === id) || null
 
     const supabase = createClient()
     const { error } = await supabase
@@ -449,6 +495,19 @@ export default function AppClient({
       setErrore(error.message)
       return
     }
+
+    await writeAuditLog({
+      aziendaId: scadenzaDaAnnullare?.azienda_id ?? null,
+      azione: 'UPDATE',
+      tabella: 'scadenze',
+      recordId: id,
+      dettagli: {
+        titolo: scadenzaDaAnnullare?.titolo ?? null,
+        data: scadenzaDaAnnullare?.data ?? null,
+        stato_precedente: scadenzaDaAnnullare?.stato ?? null,
+        nuovo_stato: 'annullata',
+      },
+    })
 
     setStatus('Scadenza annullata')
     await loadData()
