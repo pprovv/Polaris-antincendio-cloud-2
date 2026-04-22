@@ -443,50 +443,11 @@ export default function AppClient({
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  function addMonthsIsoDate(baseDate: string, monthsToAdd: number) {
-    const [year, month, day] = baseDate.split('-').map(Number)
-    const firstOfTargetMonth = new Date(Date.UTC(year, (month - 1) + monthsToAdd, 1))
-    const lastDayOfTargetMonth = new Date(
-      Date.UTC(firstOfTargetMonth.getUTCFullYear(), firstOfTargetMonth.getUTCMonth() + 1, 0)
-    ).getUTCDate()
-    const safeDay = Math.min(day, lastDayOfTargetMonth)
-    const result = new Date(
-      Date.UTC(firstOfTargetMonth.getUTCFullYear(), firstOfTargetMonth.getUTCMonth(), safeDay)
-    )
-    return result.toISOString().slice(0, 10)
-  }
-
-  function getProssimaDataScadenza(dataBase: string, ricorrenza: string) {
-    switch (ricorrenza) {
-      case 'mensile':
-        return addMonthsIsoDate(dataBase, 1)
-      case 'trimestrale':
-        return addMonthsIsoDate(dataBase, 3)
-      case 'semestrale':
-        return addMonthsIsoDate(dataBase, 6)
-      case 'annuale':
-        return addMonthsIsoDate(dataBase, 12)
-      default:
-        return null
-    }
-  }
-
   async function handleCompletaScadenza(id: string) {
     const scadenzaDaCompletare = scadenze.find((s) => s.id === id) || null
-
-    if (!scadenzaDaCompletare) {
-      setErrore('Scadenza non trovata')
-      return
-    }
-
-    if (scadenzaDaCompletare.stato === 'completata') {
-      setStatus('Scadenza già completata')
-      return
-    }
-
     const completataIl = new Date().toISOString()
-    const supabase = createClient()
 
+    const supabase = createClient()
     const { error } = await supabase
       .from('scadenze')
       .update({
@@ -501,76 +462,18 @@ export default function AppClient({
     }
 
     await writeAuditLog({
-      aziendaId: scadenzaDaCompletare.azienda_id,
+      aziendaId: scadenzaDaCompletare?.azienda_id ?? null,
       azione: 'UPDATE',
       tabella: 'scadenze',
       recordId: id,
       dettagli: {
-        titolo: scadenzaDaCompletare.titolo,
-        data: scadenzaDaCompletare.data,
-        stato_precedente: scadenzaDaCompletare.stato ?? null,
+        titolo: scadenzaDaCompletare?.titolo ?? null,
+        data: scadenzaDaCompletare?.data ?? null,
+        stato_precedente: scadenzaDaCompletare?.stato ?? null,
         nuovo_stato: 'completata',
         completata_il: completataIl,
       },
     })
-
-    const prossimaData = getProssimaDataScadenza(
-      scadenzaDaCompletare.data,
-      scadenzaDaCompletare.ricorrenza
-    )
-
-    if (prossimaData) {
-      const nuovaScadenzaValues = {
-        azienda_id: scadenzaDaCompletare.azienda_id,
-        titolo: scadenzaDaCompletare.titolo,
-        descrizione: scadenzaDaCompletare.descrizione,
-        categoria: scadenzaDaCompletare.categoria,
-        data: prossimaData,
-        stato: 'da_fare',
-        priorita: scadenzaDaCompletare.priorita,
-        origine: 'automatica',
-        ricorrenza: scadenzaDaCompletare.ricorrenza,
-        note: scadenzaDaCompletare.note,
-        collegata_a_registrazione_id: null,
-        attiva: true,
-        completata_il: null,
-        completata_da: null,
-      }
-
-      const { data: nuovaScadenza, error: insertError } = await supabase
-        .from('scadenze')
-        .insert(nuovaScadenzaValues)
-        .select('id, azienda_id, titolo, data, stato, priorita, categoria, ricorrenza, origine')
-        .single()
-
-      if (insertError) {
-        setErrore(`Scadenza completata, ma errore nella generazione automatica: ${insertError.message}`)
-        await loadData()
-        return
-      }
-
-      await writeAuditLog({
-        aziendaId: nuovaScadenza?.azienda_id ?? scadenzaDaCompletare.azienda_id,
-        azione: 'INSERT',
-        tabella: 'scadenze',
-        recordId: nuovaScadenza?.id ?? null,
-        dettagli: {
-          titolo: nuovaScadenza?.titolo ?? scadenzaDaCompletare.titolo,
-          data: nuovaScadenza?.data ?? prossimaData,
-          stato: nuovaScadenza?.stato ?? 'da_fare',
-          priorita: nuovaScadenza?.priorita ?? scadenzaDaCompletare.priorita,
-          categoria: nuovaScadenza?.categoria ?? scadenzaDaCompletare.categoria,
-          ricorrenza: nuovaScadenza?.ricorrenza ?? scadenzaDaCompletare.ricorrenza,
-          origine: nuovaScadenza?.origine ?? 'automatica',
-          generata_da_scadenza_id: scadenzaDaCompletare.id,
-          data_origine: scadenzaDaCompletare.data,
-        },
-      })
-
-      setStatus('Scadenza completata e nuova scadenza automatica generata')
-      await loadData()
-      return
-    }
 
     setStatus('Scadenza completata')
     await loadData()
