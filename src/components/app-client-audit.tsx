@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { createClient } from '@/lib/supabase/client'
+import { writeAuditLog } from '@/lib/audit-log'
 
 type Scheda = {
   id: string
@@ -219,21 +220,49 @@ export default function AppClient({
         return
       }
 
+      await writeAuditLog({
+        aziendaId: aziendaInModificaId,
+        azione: 'UPDATE',
+        tabella: 'aziende',
+        recordId: aziendaInModificaId,
+        dettagli: {
+          ragione_sociale,
+          piva: piva || null,
+          sede: sede || null,
+        },
+      })
+
       resetFormAzienda()
       await loadData()
       return
     }
 
-    const { error } = await supabase.from('aziende').insert({
-      ragione_sociale,
-      piva: piva || null,
-      sede: sede || null,
-    })
+    const { data: nuovaAzienda, error } = await supabase
+      .from('aziende')
+      .insert({
+        ragione_sociale,
+        piva: piva || null,
+        sede: sede || null,
+      })
+      .select('id')
+      .single()
 
     if (error) {
       setErrore(error.message)
       return
     }
+
+    await writeAuditLog({
+      aziendaId: nuovaAzienda?.id ?? null,
+      azione: 'INSERT',
+      tabella: 'aziende',
+      recordId: nuovaAzienda?.id ?? null,
+      dettagli: {
+        ragione_sociale,
+        piva: piva || null,
+        sede: sede || null,
+      },
+    })
 
     resetFormAzienda()
     await loadData()
@@ -268,6 +297,16 @@ export default function AppClient({
       setErrore(error.message)
       return
     }
+
+    await writeAuditLog({
+      aziendaId: id,
+      azione: 'DELETE',
+      tabella: 'aziende',
+      recordId: id,
+      dettagli: {
+        deleted: true,
+      },
+    })
 
     if (aziendaInModificaId === id) resetFormAzienda()
     if (aziendaDettaglioId === id) setAziendaDettaglioId(null)
@@ -362,6 +401,19 @@ export default function AppClient({
           return
         }
 
+        await writeAuditLog({
+          aziendaId: aziendaEffettiva,
+          azione: 'UPDATE',
+          tabella: 'registrazioni',
+          recordId: registrazioneInModificaId,
+          dettagli: {
+            scheda_id: schedaId,
+            data: dataRegistrazione,
+            operatore_sigla: siglaOperatore || null,
+            tipo_registrazione: 'checklist',
+          },
+        })
+
         resetFormRegistrazione()
         await loadData()
         return
@@ -390,11 +442,29 @@ export default function AppClient({
         }
       })
 
-      const { error } = await supabase.from('registrazioni').insert(payloads)
+      const { data: insertedChecklistRows, error } = await supabase
+        .from('registrazioni')
+        .insert(payloads)
+        .select('id, azienda_id, scheda_id, data, operatore_sigla')
 
       if (error) {
         setErrore(error.message)
         return
+      }
+
+      for (const row of insertedChecklistRows || []) {
+        await writeAuditLog({
+          aziendaId: row.azienda_id,
+          azione: 'INSERT',
+          tabella: 'registrazioni',
+          recordId: row.id,
+          dettagli: {
+            scheda_id: row.scheda_id,
+            data: row.data,
+            operatore_sigla: row.operatore_sigla ?? null,
+            tipo_registrazione: 'checklist',
+          },
+        })
       }
 
       resetFormRegistrazione()
@@ -426,15 +496,42 @@ export default function AppClient({
       }
 
       const query = registrazioneInModificaId
-        ? supabase.from('registrazioni').update(values).eq('id', registrazioneInModificaId)
-        : supabase.from('registrazioni').insert(values)
+        ? supabase
+            .from('registrazioni')
+            .update(values)
+            .eq('id', registrazioneInModificaId)
+            .select('id, azienda_id, scheda_id, data, operatore_sigla')
+            .single()
+        : supabase
+            .from('registrazioni')
+            .insert(values)
+            .select('id, azienda_id, scheda_id, data, operatore_sigla')
+            .single()
 
-      const { error } = await query
+      const { data: esercitazioneRow, error } = await query
 
       if (error) {
         setErrore(error.message)
         return
       }
+
+      await writeAuditLog({
+        aziendaId: esercitazioneRow?.azienda_id ?? aziendaEffettiva,
+        azione: registrazioneInModificaId ? 'UPDATE' : 'INSERT',
+        tabella: 'registrazioni',
+        recordId: esercitazioneRow?.id ?? registrazioneInModificaId,
+        dettagli: {
+          scheda_id: esercitazioneRow?.scheda_id ?? schedaSelezionata,
+          data: esercitazioneRow?.data ?? dataRegistrazione,
+          operatore_sigla: esercitazioneRow?.operatore_sigla ?? siglaOperatore || null,
+          tipo_registrazione: 'esercitazione',
+          persone_presenti: personePresenti || '',
+          descrizione: descrizioneEsercitazione || '',
+          durata: durataEsercitazione || '',
+          osservazioni: osservazioniEsercitazione || '',
+          responsabile: responsabileEsercitazione || '',
+        },
+      })
 
       resetFormRegistrazione()
       await loadData()
@@ -465,15 +562,42 @@ export default function AppClient({
       }
 
       const query = registrazioneInModificaId
-        ? supabase.from('registrazioni').update(values).eq('id', registrazioneInModificaId)
-        : supabase.from('registrazioni').insert(values)
+        ? supabase
+            .from('registrazioni')
+            .update(values)
+            .eq('id', registrazioneInModificaId)
+            .select('id, azienda_id, scheda_id, data, operatore_sigla')
+            .single()
+        : supabase
+            .from('registrazioni')
+            .insert(values)
+            .select('id, azienda_id, scheda_id, data, operatore_sigla')
+            .single()
 
-      const { error } = await query
+      const { data: ncRow, error } = await query
 
       if (error) {
         setErrore(error.message)
         return
       }
+
+      await writeAuditLog({
+        aziendaId: ncRow?.azienda_id ?? aziendaEffettiva,
+        azione: registrazioneInModificaId ? 'UPDATE' : 'INSERT',
+        tabella: 'registrazioni',
+        recordId: ncRow?.id ?? registrazioneInModificaId,
+        dettagli: {
+          scheda_id: ncRow?.scheda_id ?? schedaSelezionata,
+          data: ncRow?.data ?? dataRegistrazione,
+          operatore_sigla: ncRow?.operatore_sigla ?? siglaOperatore || null,
+          tipo_registrazione: 'non_conformita',
+          descrizione_nc: descrizioneNC || '',
+          azione_correttiva: azioneCorrettiva || '',
+          documentazione: documentazioneNC || '',
+          verifica_finale: verificaFinaleNC || '',
+          data_chiusura: dataChiusuraNC || '',
+        },
+      })
 
       resetFormRegistrazione()
       await loadData()
@@ -484,6 +608,8 @@ export default function AppClient({
     const ok = window.confirm('Vuoi davvero cancellare questa registrazione?')
     if (!ok) return
 
+    const regDaCancellare = registrazioni.find((r) => r.id === id) || null
+
     const supabase = createClient()
     const { error } = await supabase.from('registrazioni').delete().eq('id', id)
 
@@ -491,6 +617,18 @@ export default function AppClient({
       setErrore(error.message)
       return
     }
+
+    await writeAuditLog({
+      aziendaId: regDaCancellare?.azienda_id ?? null,
+      azione: 'DELETE',
+      tabella: 'registrazioni',
+      recordId: id,
+      dettagli: {
+        scheda_id: regDaCancellare?.scheda_id ?? null,
+        data: regDaCancellare?.data ?? null,
+        operatore_sigla: regDaCancellare?.operatore_sigla ?? null,
+      },
+    })
 
     if (registrazioneDettaglioId === id) setRegistrazioneDettaglioId(null)
     if (registrazioneInModificaId === id) resetFormRegistrazione()
