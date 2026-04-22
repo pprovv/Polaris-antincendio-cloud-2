@@ -548,7 +548,7 @@ export default function AppClient({
         dettagli: {
           scheda_id: esercitazioneRow?.scheda_id ?? schedaSelezionata,
           data: esercitazioneRow?.data ?? dataRegistrazione,
-          operatore_sigla: esercitazioneRow?.operatore_sigla ?? siglaOperatore || null,
+          operatore_sigla: esercitazioneRow?.operatore_sigla ?? (siglaOperatore || null),
           tipo_registrazione: 'esercitazione',
           persone_presenti: personePresenti || '',
           descrizione: descrizioneEsercitazione || '',
@@ -614,7 +614,7 @@ export default function AppClient({
         dettagli: {
           scheda_id: ncRow?.scheda_id ?? schedaSelezionata,
           data: ncRow?.data ?? dataRegistrazione,
-          operatore_sigla: ncRow?.operatore_sigla ?? siglaOperatore || null,
+          operatore_sigla: ncRow?.operatore_sigla ?? (siglaOperatore || null),
           tipo_registrazione: 'non_conformita',
           descrizione_nc: descrizioneNC || '',
           azione_correttiva: azioneCorrettiva || '',
