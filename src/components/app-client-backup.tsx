@@ -59,19 +59,6 @@ type Profile = {
   role: string
 }
 
-type AuditLogRow = {
-  id: string
-  created_at: string
-  user_email: string | null
-  role: string | null
-  azienda_id: string | null
-  azione: string
-  tabella: string
-  record_id: string | null
-  dettagli: Record<string, unknown> | null
-}
-
-
 type Props = {
   initialSchede: Scheda[]
   initialSchedeVoci: SchedaVoce[]
@@ -96,7 +83,6 @@ export default function AppClient({
   const [aziende, setAziende] = useState<Azienda[]>(initialAziende)
   const [registrazioni, setRegistrazioni] = useState<Registrazione[]>(initialRegistrazioni)
   const [profiles, setProfiles] = useState<Profile[]>(initialProfiles)
-  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([])
   const [errore, setErrore] = useState('')
   const [status, setStatus] = useState('Dati caricati correttamente')
 
@@ -185,22 +171,12 @@ export default function AppClient({
       if (registrazioniError) throw registrazioniError
 
       let profilesData: Profile[] = []
-      let auditLogsData: AuditLogRow[] = []
-
       if (isConsulente) {
         const { data, error } = await supabase
           .from('profiles')
           .select('id, email, azienda_id, role')
           .order('email', { ascending: true })
         if (!error) profilesData = (data as Profile[]) || []
-
-        const { data: auditData, error: auditError } = await supabase
-          .from('audit_log')
-          .select('id, created_at, user_email, role, azienda_id, azione, tabella, record_id, dettagli')
-          .order('created_at', { ascending: false })
-          .limit(20)
-
-        if (!auditError) auditLogsData = (auditData as AuditLogRow[]) || []
       }
 
       setSchede(schedeData || [])
@@ -208,7 +184,6 @@ export default function AppClient({
       setAziende(aziendeData || [])
       setRegistrazioni((registrazioniData as Registrazione[]) || [])
       setProfiles(profilesData)
-      setAuditLogs(auditLogsData)
       setErrore('')
       setStatus('Dati aggiornati')
     } catch (err) {
@@ -548,7 +523,7 @@ export default function AppClient({
         dettagli: {
           scheda_id: esercitazioneRow?.scheda_id ?? schedaSelezionata,
           data: esercitazioneRow?.data ?? dataRegistrazione,
-          operatore_sigla: esercitazioneRow?.operatore_sigla ?? siglaOperatore || null,
+          operatore_sigla: esercitazioneRow?.operatore_sigla ?? (siglaOperatore || null),
           tipo_registrazione: 'esercitazione',
           persone_presenti: personePresenti || '',
           descrizione: descrizioneEsercitazione || '',
@@ -614,7 +589,7 @@ export default function AppClient({
         dettagli: {
           scheda_id: ncRow?.scheda_id ?? schedaSelezionata,
           data: ncRow?.data ?? dataRegistrazione,
-          operatore_sigla: ncRow?.operatore_sigla ?? siglaOperatore || null,
+          operatore_sigla: ncRow?.operatore_sigla ?? (siglaOperatore || null),
           tipo_registrazione: 'non_conformita',
           descrizione_nc: descrizioneNC || '',
           azione_correttiva: azioneCorrettiva || '',
@@ -734,13 +709,6 @@ export default function AppClient({
 
   function nomeScheda(id: string) {
     return schede.find((s) => s.id === id)?.titolo || id
-  }
-
-  function formatDateTime(value: string) {
-    if (!value) return '—'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleString('it-IT')
   }
 
   function ultimaRegistrazioneAzienda(aziendaId: string) {
@@ -1261,68 +1229,6 @@ let y = ySchedaEnd + 16
                   </tbody>
                 </table>
               </div>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Storico attività</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Ultime 20 operazioni registrate nell'audit log.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-              <table className="min-w-full border-collapse">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Data e ora</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Utente</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Ruolo</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azienda</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azione</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Tabella</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Record</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.length > 0 ? (
-                    auditLogs.map((log) => (
-                      <tr key={log.id} className="odd:bg-white even:bg-slate-50">
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {formatDateTime(log.created_at)}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.user_email || '—'}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.role || '—'}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.azienda_id ? nomeAzienda(log.azienda_id) : '—'}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800">
-                          {log.azione}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.tabella}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.record_id || '—'}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-4 text-sm text-slate-500">
-                        Nessuna attività registrata.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
