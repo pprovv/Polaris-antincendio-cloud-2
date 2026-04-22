@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { createClient } from '@/lib/supabase/client'
-import { writeAuditLog } from '@/lib/audit-log'
 
 type Scheda = {
   id: string
@@ -59,18 +58,25 @@ type Profile = {
   role: string
 }
 
-type AuditLogRow = {
+type Scadenza = {
   id: string
+  azienda_id: string
+  titolo: string
+  descrizione: string | null
+  categoria: string
+  data: string
+  stato: string | null
+  priorita: string
+  origine: string
+  ricorrenza: string
+  completata_il: string | null
+  completata_da: string | null
+  note: string | null
+  collegata_a_registrazione_id: string | null
+  attiva: boolean
   created_at: string
-  user_email: string | null
-  role: string | null
-  azienda_id: string | null
-  azione: string
-  tabella: string
-  record_id: string | null
-  dettagli: Record<string, unknown> | null
+  updated_at: string
 }
-
 
 type Props = {
   initialSchede: Scheda[]
@@ -96,7 +102,7 @@ export default function AppClient({
   const [aziende, setAziende] = useState<Azienda[]>(initialAziende)
   const [registrazioni, setRegistrazioni] = useState<Registrazione[]>(initialRegistrazioni)
   const [profiles, setProfiles] = useState<Profile[]>(initialProfiles)
-  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([])
+  const [scadenze, setScadenze] = useState<Scadenza[]>([])
   const [errore, setErrore] = useState('')
   const [status, setStatus] = useState('Dati caricati correttamente')
 
@@ -129,11 +135,6 @@ export default function AppClient({
 
   // filtro aziende consulente
   const [filtroTestoAzienda, setFiltroTestoAzienda] = useState('')
-  const [auditFiltroAziendaId, setAuditFiltroAziendaId] = useState('')
-  const [auditFiltroAzione, setAuditFiltroAzione] = useState('')
-  const [auditFiltroDataDa, setAuditFiltroDataDa] = useState('')
-  const [auditFiltroDataA, setAuditFiltroDataA] = useState('')
-  const [auditFiltroTesto, setAuditFiltroTesto] = useState('')
 
   // esercitazione
   const [personePresenti, setPersonePresenti] = useState('')
@@ -153,10 +154,26 @@ export default function AppClient({
   const [registrazioneDettaglioId, setRegistrazioneDettaglioId] = useState<string | null>(null)
   const [registrazioneInModificaId, setRegistrazioneInModificaId] = useState<string | null>(null)
 
+  // scadenze
+  const [scadenzaInModificaId, setScadenzaInModificaId] = useState<string | null>(null)
+  const [scadenzaAziendaId, setScadenzaAziendaId] = useState('')
+  const [titoloScadenza, setTitoloScadenza] = useState('')
+  const [descrizioneScadenza, setDescrizioneScadenza] = useState('')
+  const [categoriaScadenza, setCategoriaScadenza] = useState('antincendio')
+  const [dataScadenza, setDataScadenza] = useState('')
+  const [prioritaScadenza, setPrioritaScadenza] = useState('media')
+  const [ricorrenzaScadenza, setRicorrenzaScadenza] = useState('nessuna')
+  const [noteScadenza, setNoteScadenza] = useState('')
+  const [filtroScadenzaAziendaId, setFiltroScadenzaAziendaId] = useState('')
+  const [filtroScadenzaStato, setFiltroScadenzaStato] = useState('tutte')
+  const [filtroScadenzaRicerca, setFiltroScadenzaRicerca] = useState('')
+
   useEffect(() => {
     if (isCliente && userAziendaId) {
       setAziendaSelezionata(userAziendaId)
       setFiltroAziendaId(userAziendaId)
+      setScadenzaAziendaId(userAziendaId)
+      setFiltroScadenzaAziendaId(userAziendaId)
     }
   }, [isCliente, userAziendaId])
 
@@ -189,31 +206,30 @@ export default function AppClient({
         .order('data', { ascending: false })
       if (registrazioniError) throw registrazioniError
 
-      let profilesData: Profile[] = []
-      let auditLogsData: AuditLogRow[] = []
+      const { data: scadenzeData, error: scadenzeError } = await supabase
+        .from('scadenze')
+        .select(
+          'id, azienda_id, titolo, descrizione, categoria, data, stato, priorita, origine, ricorrenza, completata_il, completata_da, note, collegata_a_registrazione_id, attiva, created_at, updated_at'
+        )
+        .eq('attiva', true)
+        .order('data', { ascending: true })
+      if (scadenzeError) throw scadenzeError
 
+      let profilesData: Profile[] = []
       if (isConsulente) {
         const { data, error } = await supabase
           .from('profiles')
           .select('id, email, azienda_id, role')
           .order('email', { ascending: true })
         if (!error) profilesData = (data as Profile[]) || []
-
-        const { data: auditData, error: auditError } = await supabase
-          .from('audit_log')
-          .select('id, created_at, user_email, role, azienda_id, azione, tabella, record_id, dettagli')
-          .order('created_at', { ascending: false })
-          .limit(100)
-
-        if (!auditError) auditLogsData = (auditData as AuditLogRow[]) || []
       }
 
       setSchede(schedeData || [])
       setSchedeVoci(schedeVociData || [])
       setAziende(aziendeData || [])
       setRegistrazioni((registrazioniData as Registrazione[]) || [])
+      setScadenze((scadenzeData as Scadenza[]) || [])
       setProfiles(profilesData)
-      setAuditLogs(auditLogsData)
       setErrore('')
       setStatus('Dati aggiornati')
     } catch (err) {
@@ -250,49 +266,21 @@ export default function AppClient({
         return
       }
 
-      await writeAuditLog({
-        aziendaId: aziendaInModificaId,
-        azione: 'UPDATE',
-        tabella: 'aziende',
-        recordId: aziendaInModificaId,
-        dettagli: {
-          ragione_sociale,
-          piva: piva || null,
-          sede: sede || null,
-        },
-      })
-
       resetFormAzienda()
       await loadData()
       return
     }
 
-    const { data: nuovaAzienda, error } = await supabase
-      .from('aziende')
-      .insert({
-        ragione_sociale,
-        piva: piva || null,
-        sede: sede || null,
-      })
-      .select('id')
-      .single()
+    const { error } = await supabase.from('aziende').insert({
+      ragione_sociale,
+      piva: piva || null,
+      sede: sede || null,
+    })
 
     if (error) {
       setErrore(error.message)
       return
     }
-
-    await writeAuditLog({
-      aziendaId: nuovaAzienda?.id ?? null,
-      azione: 'INSERT',
-      tabella: 'aziende',
-      recordId: nuovaAzienda?.id ?? null,
-      dettagli: {
-        ragione_sociale,
-        piva: piva || null,
-        sede: sede || null,
-      },
-    })
 
     resetFormAzienda()
     await loadData()
@@ -328,16 +316,6 @@ export default function AppClient({
       return
     }
 
-    await writeAuditLog({
-      aziendaId: id,
-      azione: 'DELETE',
-      tabella: 'aziende',
-      recordId: id,
-      dettagli: {
-        deleted: true,
-      },
-    })
-
     if (aziendaInModificaId === id) resetFormAzienda()
     if (aziendaDettaglioId === id) setAziendaDettaglioId(null)
 
@@ -367,6 +345,135 @@ export default function AppClient({
     setFiltroAziendaId(isCliente && userAziendaId ? userAziendaId : '')
     setFiltroDataDa('')
     setFiltroDataA('')
+  }
+
+  function resetFormScadenza() {
+    setScadenzaInModificaId(null)
+    setScadenzaAziendaId(isCliente && userAziendaId ? userAziendaId : '')
+    setTitoloScadenza('')
+    setDescrizioneScadenza('')
+    setCategoriaScadenza('antincendio')
+    setDataScadenza('')
+    setPrioritaScadenza('media')
+    setRicorrenzaScadenza('nessuna')
+    setNoteScadenza('')
+  }
+
+  async function handleScadenzaSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setErrore('')
+
+    const aziendaEffettiva = isCliente && userAziendaId ? userAziendaId : scadenzaAziendaId
+
+    if (!aziendaEffettiva || !titoloScadenza.trim() || !dataScadenza) {
+      setErrore('Compila azienda, titolo e data della scadenza')
+      return
+    }
+
+    const supabase = createClient()
+
+    const values = {
+      azienda_id: aziendaEffettiva,
+      titolo: titoloScadenza.trim(),
+      descrizione: descrizioneScadenza.trim() || null,
+      categoria: categoriaScadenza,
+      data: dataScadenza,
+      stato: 'da_fare',
+      priorita: prioritaScadenza,
+      origine: 'manuale',
+      ricorrenza: ricorrenzaScadenza,
+      note: noteScadenza.trim() || null,
+      attiva: true,
+    }
+
+    const query = scadenzaInModificaId
+      ? supabase.from('scadenze').update(values).eq('id', scadenzaInModificaId)
+      : supabase.from('scadenze').insert(values)
+
+    const { error } = await query
+
+    if (error) {
+      setErrore(error.message)
+      return
+    }
+
+    setStatus(scadenzaInModificaId ? 'Scadenza aggiornata' : 'Scadenza salvata')
+    resetFormScadenza()
+    await loadData()
+  }
+
+  function handleEditScadenza(scadenza: Scadenza) {
+    setErrore('')
+    setScadenzaInModificaId(scadenza.id)
+    setScadenzaAziendaId(scadenza.azienda_id)
+    setTitoloScadenza(scadenza.titolo || '')
+    setDescrizioneScadenza(scadenza.descrizione || '')
+    setCategoriaScadenza(scadenza.categoria || 'antincendio')
+    setDataScadenza(scadenza.data || '')
+    setPrioritaScadenza(scadenza.priorita || 'media')
+    setRicorrenzaScadenza(scadenza.ricorrenza || 'nessuna')
+    setNoteScadenza(scadenza.note || '')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function handleCompletaScadenza(id: string) {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('scadenze')
+      .update({
+        stato: 'completata',
+        completata_il: new Date().toISOString(),
+      })
+      .eq('id', id)
+
+    if (error) {
+      setErrore(error.message)
+      return
+    }
+
+    setStatus('Scadenza completata')
+    await loadData()
+  }
+
+  async function handleAnnullaScadenza(id: string) {
+    const ok = window.confirm('Vuoi annullare questa scadenza?')
+    if (!ok) return
+
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('scadenze')
+      .update({ stato: 'annullata' })
+      .eq('id', id)
+
+    if (error) {
+      setErrore(error.message)
+      return
+    }
+
+    setStatus('Scadenza annullata')
+    await loadData()
+  }
+
+  function getStatoScadenzaVisuale(scadenza: Scadenza) {
+    if (scadenza.stato === 'completata') return 'completata'
+    if (scadenza.stato === 'annullata') return 'annullata'
+
+    const oggi = new Date()
+    oggi.setHours(0, 0, 0, 0)
+    const data = new Date(`${scadenza.data}T00:00:00`)
+
+    if (data.getTime() < oggi.getTime()) return 'scaduta'
+
+    const diffGiorni = Math.ceil((data.getTime() - oggi.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffGiorni <= 7) return 'in_scadenza'
+
+    return 'da_fare'
+  }
+
+  function resetFiltriScadenze() {
+    setFiltroScadenzaAziendaId(isCliente && userAziendaId ? userAziendaId : '')
+    setFiltroScadenzaStato('tutte')
+    setFiltroScadenzaRicerca('')
   }
 
   async function handleRegistrazioneSubmit(e: React.FormEvent) {
@@ -431,19 +538,6 @@ export default function AppClient({
           return
         }
 
-        await writeAuditLog({
-          aziendaId: aziendaEffettiva,
-          azione: 'UPDATE',
-          tabella: 'registrazioni',
-          recordId: registrazioneInModificaId,
-          dettagli: {
-            scheda_id: schedaId,
-            data: dataRegistrazione,
-            operatore_sigla: siglaOperatore || null,
-            tipo_registrazione: 'checklist',
-          },
-        })
-
         resetFormRegistrazione()
         await loadData()
         return
@@ -472,29 +566,11 @@ export default function AppClient({
         }
       })
 
-      const { data: insertedChecklistRows, error } = await supabase
-        .from('registrazioni')
-        .insert(payloads)
-        .select('id, azienda_id, scheda_id, data, operatore_sigla')
+      const { error } = await supabase.from('registrazioni').insert(payloads)
 
       if (error) {
         setErrore(error.message)
         return
-      }
-
-      for (const row of insertedChecklistRows || []) {
-        await writeAuditLog({
-          aziendaId: row.azienda_id,
-          azione: 'INSERT',
-          tabella: 'registrazioni',
-          recordId: row.id,
-          dettagli: {
-            scheda_id: row.scheda_id,
-            data: row.data,
-            operatore_sigla: row.operatore_sigla ?? null,
-            tipo_registrazione: 'checklist',
-          },
-        })
       }
 
       resetFormRegistrazione()
@@ -526,42 +602,15 @@ export default function AppClient({
       }
 
       const query = registrazioneInModificaId
-        ? supabase
-            .from('registrazioni')
-            .update(values)
-            .eq('id', registrazioneInModificaId)
-            .select('id, azienda_id, scheda_id, data, operatore_sigla')
-            .single()
-        : supabase
-            .from('registrazioni')
-            .insert(values)
-            .select('id, azienda_id, scheda_id, data, operatore_sigla')
-            .single()
+        ? supabase.from('registrazioni').update(values).eq('id', registrazioneInModificaId)
+        : supabase.from('registrazioni').insert(values)
 
-      const { data: esercitazioneRow, error } = await query
+      const { error } = await query
 
       if (error) {
         setErrore(error.message)
         return
       }
-
-      await writeAuditLog({
-        aziendaId: esercitazioneRow?.azienda_id ?? aziendaEffettiva,
-        azione: registrazioneInModificaId ? 'UPDATE' : 'INSERT',
-        tabella: 'registrazioni',
-        recordId: esercitazioneRow?.id ?? registrazioneInModificaId,
-        dettagli: {
-          scheda_id: esercitazioneRow?.scheda_id ?? schedaSelezionata,
-          data: esercitazioneRow?.data ?? dataRegistrazione,
-          operatore_sigla: esercitazioneRow?.operatore_sigla ?? (siglaOperatore || null),
-          tipo_registrazione: 'esercitazione',
-          persone_presenti: personePresenti || '',
-          descrizione: descrizioneEsercitazione || '',
-          durata: durataEsercitazione || '',
-          osservazioni: osservazioniEsercitazione || '',
-          responsabile: responsabileEsercitazione || '',
-        },
-      })
 
       resetFormRegistrazione()
       await loadData()
@@ -592,42 +641,15 @@ export default function AppClient({
       }
 
       const query = registrazioneInModificaId
-        ? supabase
-            .from('registrazioni')
-            .update(values)
-            .eq('id', registrazioneInModificaId)
-            .select('id, azienda_id, scheda_id, data, operatore_sigla')
-            .single()
-        : supabase
-            .from('registrazioni')
-            .insert(values)
-            .select('id, azienda_id, scheda_id, data, operatore_sigla')
-            .single()
+        ? supabase.from('registrazioni').update(values).eq('id', registrazioneInModificaId)
+        : supabase.from('registrazioni').insert(values)
 
-      const { data: ncRow, error } = await query
+      const { error } = await query
 
       if (error) {
         setErrore(error.message)
         return
       }
-
-      await writeAuditLog({
-        aziendaId: ncRow?.azienda_id ?? aziendaEffettiva,
-        azione: registrazioneInModificaId ? 'UPDATE' : 'INSERT',
-        tabella: 'registrazioni',
-        recordId: ncRow?.id ?? registrazioneInModificaId,
-        dettagli: {
-          scheda_id: ncRow?.scheda_id ?? schedaSelezionata,
-          data: ncRow?.data ?? dataRegistrazione,
-          operatore_sigla: ncRow?.operatore_sigla ?? (siglaOperatore || null),
-          tipo_registrazione: 'non_conformita',
-          descrizione_nc: descrizioneNC || '',
-          azione_correttiva: azioneCorrettiva || '',
-          documentazione: documentazioneNC || '',
-          verifica_finale: verificaFinaleNC || '',
-          data_chiusura: dataChiusuraNC || '',
-        },
-      })
 
       resetFormRegistrazione()
       await loadData()
@@ -638,8 +660,6 @@ export default function AppClient({
     const ok = window.confirm('Vuoi davvero cancellare questa registrazione?')
     if (!ok) return
 
-    const regDaCancellare = registrazioni.find((r) => r.id === id) || null
-
     const supabase = createClient()
     const { error } = await supabase.from('registrazioni').delete().eq('id', id)
 
@@ -647,18 +667,6 @@ export default function AppClient({
       setErrore(error.message)
       return
     }
-
-    await writeAuditLog({
-      aziendaId: regDaCancellare?.azienda_id ?? null,
-      azione: 'DELETE',
-      tabella: 'registrazioni',
-      recordId: id,
-      dettagli: {
-        scheda_id: regDaCancellare?.scheda_id ?? null,
-        data: regDaCancellare?.data ?? null,
-        operatore_sigla: regDaCancellare?.operatore_sigla ?? null,
-      },
-    })
 
     if (registrazioneDettaglioId === id) setRegistrazioneDettaglioId(null)
     if (registrazioneInModificaId === id) resetFormRegistrazione()
@@ -739,86 +747,6 @@ export default function AppClient({
 
   function nomeScheda(id: string) {
     return schede.find((s) => s.id === id)?.titolo || id
-  }
-
-  function formatDateTime(value: string) {
-    if (!value) return '—'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleString('it-IT')
-  }
-
-  function formatDateOnly(value: string) {
-    if (!value) return '—'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleDateString('it-IT')
-  }
-
-  function auditActionLabel(value: string) {
-    switch (value) {
-      case 'INSERT':
-        return 'Creazione'
-      case 'UPDATE':
-        return 'Modifica'
-      case 'DELETE':
-        return 'Eliminazione'
-      default:
-        return value
-    }
-  }
-
-  function auditTableLabel(value: string) {
-    switch (value) {
-      case 'registrazioni':
-        return 'Registro controlli'
-      case 'aziende':
-        return 'Anagrafica aziende'
-      case 'audit_log':
-        return 'Storico attività'
-      default:
-        return value
-    }
-  }
-
-  function auditActionBadgeClass(value: string) {
-    switch (value) {
-      case 'INSERT':
-        return 'bg-green-100 text-green-800'
-      case 'UPDATE':
-        return 'bg-amber-100 text-amber-800'
-      case 'DELETE':
-        return 'bg-red-100 text-red-800'
-      default:
-        return 'bg-slate-100 text-slate-700'
-    }
-  }
-
-  function auditDettagliSintesi(log: AuditLogRow) {
-    const dettagli = log.dettagli || {}
-    const tipoRegistrazione = typeof dettagli.tipo_registrazione === 'string' ? dettagli.tipo_registrazione : null
-    const schedaId = typeof dettagli.scheda_id === 'string' ? dettagli.scheda_id : null
-
-    if (log.tabella === 'registrazioni') {
-      const pezzi: string[] = []
-      if (schedaId) pezzi.push(nomeScheda(schedaId))
-      if (tipoRegistrazione === 'checklist') pezzi.push('Checklist')
-      if (tipoRegistrazione === 'esercitazione') pezzi.push('Esercitazione')
-      if (tipoRegistrazione === 'non_conformita') pezzi.push('Non conformità')
-      if (typeof dettagli.operatore_sigla === 'string' && dettagli.operatore_sigla) {
-        pezzi.push(`Operatore ${dettagli.operatore_sigla}`)
-      }
-      return pezzi.length ? pezzi.join(' • ') : 'Operazione su registrazione'
-    }
-
-    if (log.tabella === 'aziende') {
-      if (typeof dettagli.ragione_sociale === 'string' && dettagli.ragione_sociale) {
-        return dettagli.ragione_sociale
-      }
-      return log.azienda_id ? nomeAzienda(log.azienda_id) : 'Operazione su azienda'
-    }
-
-    return '—'
   }
 
   function ultimaRegistrazioneAzienda(aziendaId: string) {
@@ -1207,6 +1135,54 @@ let y = ySchedaEnd + 16
     })
   }, [registrazioniVisibiliBase, filtroAziendaId, filtroDataDa, filtroDataA])
 
+  const scadenzeVisibiliBase = useMemo(() => {
+    if (!isCliente) return scadenze
+    return scadenze.filter((s) => s.azienda_id === userAziendaId)
+  }, [scadenze, isCliente, userAziendaId])
+
+  const scadenzeFiltrate = useMemo(() => {
+    return scadenzeVisibiliBase.filter((scadenza) => {
+      if (filtroScadenzaAziendaId && scadenza.azienda_id !== filtroScadenzaAziendaId) return false
+
+      const statoVisuale = getStatoScadenzaVisuale(scadenza)
+      if (filtroScadenzaStato !== 'tutte' && statoVisuale !== filtroScadenzaStato) return false
+
+      if (filtroScadenzaRicerca.trim()) {
+        const q = filtroScadenzaRicerca.toLowerCase().trim()
+        const haystack = [
+          scadenza.titolo,
+          scadenza.descrizione || '',
+          scadenza.categoria || '',
+          scadenza.note || '',
+          nomeAzienda(scadenza.azienda_id),
+        ]
+          .join(' ')
+          .toLowerCase()
+
+        if (!haystack.includes(q)) return false
+      }
+
+      return true
+    })
+  }, [
+    scadenzeVisibiliBase,
+    filtroScadenzaAziendaId,
+    filtroScadenzaStato,
+    filtroScadenzaRicerca,
+    aziende,
+  ])
+
+  const totaleScadenze = scadenze.length
+  const totaleScadenzeScadute = scadenzeVisibiliBase.filter(
+    (s) => getStatoScadenzaVisuale(s) === 'scaduta'
+  ).length
+  const totaleScadenzeInScadenza = scadenzeVisibiliBase.filter(
+    (s) => getStatoScadenzaVisuale(s) === 'in_scadenza'
+  ).length
+  const totaleScadenzeCompletate = scadenzeVisibiliBase.filter(
+    (s) => getStatoScadenzaVisuale(s) === 'completata'
+  ).length
+
   const totaleAziende = aziende.length
   const totaleRegistrazioni = registrazioni.length
   const totaleClientiCollegati = profiles.filter((p) => p.role === 'cliente').length
@@ -1231,46 +1207,6 @@ let y = ySchedaEnd + 16
       })
       .slice(0, 5)
   }, [aziende, registrazioni])
-
-  const auditLogsFiltrati = useMemo(() => {
-    return auditLogs.filter((log) => {
-      if (auditFiltroAziendaId && log.azienda_id !== auditFiltroAziendaId) return false
-      if (auditFiltroAzione && log.azione !== auditFiltroAzione) return false
-
-      const logDate = log.created_at ? log.created_at.slice(0, 10) : ''
-      if (auditFiltroDataDa && logDate < auditFiltroDataDa) return false
-      if (auditFiltroDataA && logDate > auditFiltroDataA) return false
-
-      if (auditFiltroTesto.trim()) {
-        const q = auditFiltroTesto.toLowerCase().trim()
-        const searchable = [
-          log.user_email || '',
-          log.role || '',
-          log.azione || '',
-          auditActionLabel(log.azione),
-          log.tabella || '',
-          auditTableLabel(log.tabella),
-          log.record_id || '',
-          log.azienda_id ? nomeAzienda(log.azienda_id) : '',
-          auditDettagliSintesi(log),
-        ]
-          .join(' ')
-          .toLowerCase()
-
-        if (!searchable.includes(q)) return false
-      }
-
-      return true
-    })
-  }, [auditLogs, auditFiltroAziendaId, auditFiltroAzione, auditFiltroDataDa, auditFiltroDataA, auditFiltroTesto, aziende, schede])
-
-  function resetAuditFiltri() {
-    setAuditFiltroAziendaId('')
-    setAuditFiltroAzione('')
-    setAuditFiltroDataDa('')
-    setAuditFiltroDataA('')
-    setAuditFiltroTesto('')
-  }
 
   return (
     <>
@@ -1313,6 +1249,25 @@ let y = ySchedaEnd + 16
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
               <div className="text-sm text-slate-500">Non conformità registrate</div>
               <div className="mt-2 text-3xl font-bold text-slate-900">{totaleNonConformita}</div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+              <div className="text-sm text-slate-500">Scadenze totali</div>
+              <div className="mt-2 text-3xl font-bold text-slate-900">{totaleScadenze}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+              <div className="text-sm text-slate-500">Scadenze scadute</div>
+              <div className="mt-2 text-3xl font-bold text-red-600">{totaleScadenzeScadute}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+              <div className="text-sm text-slate-500">In scadenza (7 gg)</div>
+              <div className="mt-2 text-3xl font-bold text-amber-600">{totaleScadenzeInScadenza}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+              <div className="text-sm text-slate-500">Completate</div>
+              <div className="mt-2 text-3xl font-bold text-green-600">{totaleScadenzeCompletate}</div>
             </div>
           </div>
 
@@ -1381,131 +1336,242 @@ let y = ySchedaEnd + 16
               </div>
             </div>
           </div>
-
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Storico attività</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Ultime 100 operazioni registrate nell'audit log, con filtri rapidi e descrizioni più leggibili.
-                </p>
-              </div>
-
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
-                Totale visibili: {auditLogsFiltrati.length}
-              </span>
-            </div>
-
-            <div className="mt-4 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-5">
-              <select
-                value={auditFiltroAziendaId}
-                onChange={(e) => setAuditFiltroAziendaId(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              >
-                <option value="">Tutte le aziende</option>
-                {aziende.map((az) => (
-                  <option key={az.id} value={az.id}>
-                    {az.ragione_sociale}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={auditFiltroAzione}
-                onChange={(e) => setAuditFiltroAzione(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              >
-                <option value="">Tutte le azioni</option>
-                <option value="INSERT">Creazioni</option>
-                <option value="UPDATE">Modifiche</option>
-                <option value="DELETE">Eliminazioni</option>
-              </select>
-
-              <input
-                type="date"
-                value={auditFiltroDataDa}
-                onChange={(e) => setAuditFiltroDataDa(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              />
-
-              <input
-                type="date"
-                value={auditFiltroDataA}
-                onChange={(e) => setAuditFiltroDataA(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              />
-
-              <button
-                type="button"
-                onClick={resetAuditFiltri}
-                className="rounded bg-slate-200 px-4 py-3 text-slate-800"
-              >
-                Reset filtri
-              </button>
-
-              <input
-                type="text"
-                value={auditFiltroTesto}
-                onChange={(e) => setAuditFiltroTesto(e.target.value)}
-                placeholder="Cerca per utente, azienda, record o dettaglio"
-                className="rounded border border-slate-300 p-3 md:col-span-5"
-              />
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-              <table className="min-w-full border-collapse">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Quando</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Utente</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azienda</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Operazione</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Ambito</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Dettaglio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogsFiltrati.length > 0 ? (
-                    auditLogsFiltrati.map((log) => (
-                      <tr key={log.id} className="odd:bg-white even:bg-slate-50 align-top">
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          <div className="font-medium">{formatDateTime(log.created_at)}</div>
-                          <div className="mt-1 text-xs text-slate-500">{formatDateOnly(log.created_at)}</div>
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          <div className="font-medium">{log.user_email || '—'}</div>
-                          <div className="mt-1 text-xs text-slate-500">Ruolo: {log.role || '—'}</div>
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.azienda_id ? nomeAzienda(log.azienda_id) : '—'}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${auditActionBadgeClass(log.azione)}`}>
-                            {auditActionLabel(log.azione)}
-                          </span>
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          <div className="font-medium">{auditTableLabel(log.tabella)}</div>
-                          <div className="mt-1 text-xs text-slate-500">Record: {log.record_id || '—'}</div>
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {auditDettagliSintesi(log)}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-4 text-sm text-slate-500">
-                        Nessuna attività trovata con i filtri selezionati.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       )}
+
+      <div className="mt-10">
+        <h2 className="mb-4 text-xl font-semibold text-slate-800">Gestione Scadenze</h2>
+
+        {scadenzaInModificaId && (
+          <div className="mb-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-800">
+            Stai modificando una scadenza esistente.
+          </div>
+        )}
+
+        <form
+          onSubmit={handleScadenzaSubmit}
+          className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-3"
+        >
+          <select
+            value={scadenzaAziendaId}
+            onChange={(e) => setScadenzaAziendaId(e.target.value)}
+            disabled={isCliente}
+            className="rounded border border-slate-300 p-3 disabled:bg-slate-100"
+          >
+            <option value="">Seleziona azienda</option>
+            {aziendeVisibili.map((az) => (
+              <option key={az.id} value={az.id}>
+                {az.ragione_sociale}
+              </option>
+            ))}
+          </select>
+
+          <input
+            value={titoloScadenza}
+            onChange={(e) => setTitoloScadenza(e.target.value)}
+            placeholder="Titolo scadenza"
+            className="rounded border border-slate-300 p-3"
+          />
+
+          <input
+            type="date"
+            value={dataScadenza}
+            onChange={(e) => setDataScadenza(e.target.value)}
+            className="rounded border border-slate-300 p-3"
+          />
+
+          <select
+            value={categoriaScadenza}
+            onChange={(e) => setCategoriaScadenza(e.target.value)}
+            className="rounded border border-slate-300 p-3"
+          >
+            <option value="antincendio">Antincendio</option>
+            <option value="primo_soccorso">Primo soccorso</option>
+            <option value="impianti">Impianti</option>
+            <option value="formazione">Formazione</option>
+            <option value="documentazione">Documentazione</option>
+            <option value="manutenzione">Manutenzione</option>
+            <option value="sopralluogo">Sopralluogo</option>
+            <option value="altro">Altro</option>
+          </select>
+
+          <select
+            value={prioritaScadenza}
+            onChange={(e) => setPrioritaScadenza(e.target.value)}
+            className="rounded border border-slate-300 p-3"
+          >
+            <option value="bassa">Priorità bassa</option>
+            <option value="media">Priorità media</option>
+            <option value="alta">Priorità alta</option>
+          </select>
+
+          <select
+            value={ricorrenzaScadenza}
+            onChange={(e) => setRicorrenzaScadenza(e.target.value)}
+            className="rounded border border-slate-300 p-3"
+          >
+            <option value="nessuna">Ricorrenza: nessuna</option>
+            <option value="mensile">Mensile</option>
+            <option value="trimestrale">Trimestrale</option>
+            <option value="semestrale">Semestrale</option>
+            <option value="annuale">Annuale</option>
+          </select>
+
+          <textarea
+            value={descrizioneScadenza}
+            onChange={(e) => setDescrizioneScadenza(e.target.value)}
+            placeholder="Descrizione"
+            className="rounded border border-slate-300 p-3 md:col-span-2"
+          />
+
+          <textarea
+            value={noteScadenza}
+            onChange={(e) => setNoteScadenza(e.target.value)}
+            placeholder="Note operative"
+            className="rounded border border-slate-300 p-3"
+          />
+
+          <div className="flex gap-3 md:col-span-3">
+            <button className="rounded bg-indigo-600 px-4 py-3 text-white">
+              {scadenzaInModificaId ? 'Aggiorna scadenza' : 'Salva scadenza'}
+            </button>
+            <button
+              type="button"
+              onClick={resetFormScadenza}
+              className="rounded bg-slate-200 px-4 py-3 text-slate-800"
+            >
+              Pulisci campi
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-6 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
+          <select
+            value={filtroScadenzaAziendaId}
+            onChange={(e) => setFiltroScadenzaAziendaId(e.target.value)}
+            disabled={isCliente}
+            className="rounded border border-slate-300 p-3 disabled:bg-slate-100"
+          >
+            <option value="">Tutte le aziende</option>
+            {aziendeVisibili.map((az) => (
+              <option key={az.id} value={az.id}>
+                {az.ragione_sociale}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroScadenzaStato}
+            onChange={(e) => setFiltroScadenzaStato(e.target.value)}
+            className="rounded border border-slate-300 p-3"
+          >
+            <option value="tutte">Tutti gli stati</option>
+            <option value="da_fare">Da fare</option>
+            <option value="in_scadenza">In scadenza</option>
+            <option value="scaduta">Scaduta</option>
+            <option value="completata">Completata</option>
+            <option value="annullata">Annullata</option>
+          </select>
+
+          <input
+            value={filtroScadenzaRicerca}
+            onChange={(e) => setFiltroScadenzaRicerca(e.target.value)}
+            placeholder="Cerca titolo, categoria, azienda..."
+            className="rounded border border-slate-300 p-3"
+          />
+
+          <button
+            type="button"
+            onClick={resetFiltriScadenze}
+            className="rounded bg-slate-200 px-4 py-3 text-slate-800"
+          >
+            Reset filtri
+          </button>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+          <table className="min-w-full border-collapse">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Data</th>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azienda</th>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Titolo</th>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Categoria</th>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Priorità</th>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Stato</th>
+                <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scadenzeFiltrate.length > 0 ? (
+                scadenzeFiltrate.map((scadenza) => {
+                  const statoVisuale = getStatoScadenzaVisuale(scadenza)
+                  const badgeClass =
+                    statoVisuale === 'completata'
+                      ? 'bg-green-100 text-green-700'
+                      : statoVisuale === 'annullata'
+                        ? 'bg-slate-200 text-slate-700'
+                        : statoVisuale === 'scaduta'
+                          ? 'bg-red-100 text-red-700'
+                          : statoVisuale === 'in_scadenza'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-blue-100 text-blue-700'
+
+                  return (
+                    <tr key={scadenza.id} className="odd:bg-white even:bg-slate-50">
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">{scadenza.data}</td>
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">{nomeAzienda(scadenza.azienda_id)}</td>
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">{scadenza.titolo}</td>
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">{scadenza.categoria}</td>
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">{scadenza.priorita}</td>
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                          {statoVisuale.replaceAll('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="border-b border-slate-200 px-4 py-3 text-sm">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditScadenza(scadenza)}
+                            className="rounded bg-amber-500 px-3 py-1 text-white"
+                          >
+                            Modifica
+                          </button>
+                          {scadenza.stato !== 'completata' && scadenza.stato !== 'annullata' && (
+                            <button
+                              type="button"
+                              onClick={() => handleCompletaScadenza(scadenza.id)}
+                              className="rounded bg-green-600 px-3 py-1 text-white"
+                            >
+                              Completa
+                            </button>
+                          )}
+                          {scadenza.stato !== 'annullata' && (
+                            <button
+                              type="button"
+                              onClick={() => handleAnnullaScadenza(scadenza.id)}
+                              className="rounded bg-red-600 px-3 py-1 text-white"
+                            >
+                              Annulla
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              ) : (
+                <tr>
+                  <td colSpan={7} className="px-4 py-4 text-sm text-slate-500">
+                    Nessuna scadenza trovata con i filtri selezionati
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div className="mt-8">
         <h2 className="mb-4 text-xl font-semibold text-slate-800">Schede</h2>

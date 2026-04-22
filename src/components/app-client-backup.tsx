@@ -129,6 +129,11 @@ export default function AppClient({
 
   // filtro aziende consulente
   const [filtroTestoAzienda, setFiltroTestoAzienda] = useState('')
+  const [auditFiltroAziendaId, setAuditFiltroAziendaId] = useState('')
+  const [auditFiltroAzione, setAuditFiltroAzione] = useState('')
+  const [auditFiltroDataDa, setAuditFiltroDataDa] = useState('')
+  const [auditFiltroDataA, setAuditFiltroDataA] = useState('')
+  const [auditFiltroTesto, setAuditFiltroTesto] = useState('')
 
   // esercitazione
   const [personePresenti, setPersonePresenti] = useState('')
@@ -198,7 +203,7 @@ export default function AppClient({
           .from('audit_log')
           .select('id, created_at, user_email, role, azienda_id, azione, tabella, record_id, dettagli')
           .order('created_at', { ascending: false })
-          .limit(20)
+          .limit(100)
 
         if (!auditError) auditLogsData = (auditData as AuditLogRow[]) || []
       }
@@ -743,6 +748,79 @@ export default function AppClient({
     return date.toLocaleString('it-IT')
   }
 
+  function formatDateOnly(value: string) {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleDateString('it-IT')
+  }
+
+  function auditActionLabel(value: string) {
+    switch (value) {
+      case 'INSERT':
+        return 'Creazione'
+      case 'UPDATE':
+        return 'Modifica'
+      case 'DELETE':
+        return 'Eliminazione'
+      default:
+        return value
+    }
+  }
+
+  function auditTableLabel(value: string) {
+    switch (value) {
+      case 'registrazioni':
+        return 'Registro controlli'
+      case 'aziende':
+        return 'Anagrafica aziende'
+      case 'audit_log':
+        return 'Storico attività'
+      default:
+        return value
+    }
+  }
+
+  function auditActionBadgeClass(value: string) {
+    switch (value) {
+      case 'INSERT':
+        return 'bg-green-100 text-green-800'
+      case 'UPDATE':
+        return 'bg-amber-100 text-amber-800'
+      case 'DELETE':
+        return 'bg-red-100 text-red-800'
+      default:
+        return 'bg-slate-100 text-slate-700'
+    }
+  }
+
+  function auditDettagliSintesi(log: AuditLogRow) {
+    const dettagli = log.dettagli || {}
+    const tipoRegistrazione = typeof dettagli.tipo_registrazione === 'string' ? dettagli.tipo_registrazione : null
+    const schedaId = typeof dettagli.scheda_id === 'string' ? dettagli.scheda_id : null
+
+    if (log.tabella === 'registrazioni') {
+      const pezzi: string[] = []
+      if (schedaId) pezzi.push(nomeScheda(schedaId))
+      if (tipoRegistrazione === 'checklist') pezzi.push('Checklist')
+      if (tipoRegistrazione === 'esercitazione') pezzi.push('Esercitazione')
+      if (tipoRegistrazione === 'non_conformita') pezzi.push('Non conformità')
+      if (typeof dettagli.operatore_sigla === 'string' && dettagli.operatore_sigla) {
+        pezzi.push(`Operatore ${dettagli.operatore_sigla}`)
+      }
+      return pezzi.length ? pezzi.join(' • ') : 'Operazione su registrazione'
+    }
+
+    if (log.tabella === 'aziende') {
+      if (typeof dettagli.ragione_sociale === 'string' && dettagli.ragione_sociale) {
+        return dettagli.ragione_sociale
+      }
+      return log.azienda_id ? nomeAzienda(log.azienda_id) : 'Operazione su azienda'
+    }
+
+    return '—'
+  }
+
   function ultimaRegistrazioneAzienda(aziendaId: string) {
     const reg = registrazioni
       .filter((r) => r.azienda_id === aziendaId)
@@ -1154,6 +1232,46 @@ let y = ySchedaEnd + 16
       .slice(0, 5)
   }, [aziende, registrazioni])
 
+  const auditLogsFiltrati = useMemo(() => {
+    return auditLogs.filter((log) => {
+      if (auditFiltroAziendaId && log.azienda_id !== auditFiltroAziendaId) return false
+      if (auditFiltroAzione && log.azione !== auditFiltroAzione) return false
+
+      const logDate = log.created_at ? log.created_at.slice(0, 10) : ''
+      if (auditFiltroDataDa && logDate < auditFiltroDataDa) return false
+      if (auditFiltroDataA && logDate > auditFiltroDataA) return false
+
+      if (auditFiltroTesto.trim()) {
+        const q = auditFiltroTesto.toLowerCase().trim()
+        const searchable = [
+          log.user_email || '',
+          log.role || '',
+          log.azione || '',
+          auditActionLabel(log.azione),
+          log.tabella || '',
+          auditTableLabel(log.tabella),
+          log.record_id || '',
+          log.azienda_id ? nomeAzienda(log.azienda_id) : '',
+          auditDettagliSintesi(log),
+        ]
+          .join(' ')
+          .toLowerCase()
+
+        if (!searchable.includes(q)) return false
+      }
+
+      return true
+    })
+  }, [auditLogs, auditFiltroAziendaId, auditFiltroAzione, auditFiltroDataDa, auditFiltroDataA, auditFiltroTesto, aziende, schede])
+
+  function resetAuditFiltri() {
+    setAuditFiltroAziendaId('')
+    setAuditFiltroAzione('')
+    setAuditFiltroDataDa('')
+    setAuditFiltroDataA('')
+    setAuditFiltroTesto('')
+  }
+
   return (
     <>
       <p className="mt-4 text-slate-700">{status}</p>
@@ -1265,59 +1383,120 @@ let y = ySchedaEnd + 16
           </div>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-semibold text-slate-800">Storico attività</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Ultime 20 operazioni registrate nell'audit log.
+                  Ultime 100 operazioni registrate nell'audit log, con filtri rapidi e descrizioni più leggibili.
                 </p>
               </div>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                Totale visibili: {auditLogsFiltrati.length}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-5">
+              <select
+                value={auditFiltroAziendaId}
+                onChange={(e) => setAuditFiltroAziendaId(e.target.value)}
+                className="rounded border border-slate-300 p-3"
+              >
+                <option value="">Tutte le aziende</option>
+                {aziende.map((az) => (
+                  <option key={az.id} value={az.id}>
+                    {az.ragione_sociale}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={auditFiltroAzione}
+                onChange={(e) => setAuditFiltroAzione(e.target.value)}
+                className="rounded border border-slate-300 p-3"
+              >
+                <option value="">Tutte le azioni</option>
+                <option value="INSERT">Creazioni</option>
+                <option value="UPDATE">Modifiche</option>
+                <option value="DELETE">Eliminazioni</option>
+              </select>
+
+              <input
+                type="date"
+                value={auditFiltroDataDa}
+                onChange={(e) => setAuditFiltroDataDa(e.target.value)}
+                className="rounded border border-slate-300 p-3"
+              />
+
+              <input
+                type="date"
+                value={auditFiltroDataA}
+                onChange={(e) => setAuditFiltroDataA(e.target.value)}
+                className="rounded border border-slate-300 p-3"
+              />
+
+              <button
+                type="button"
+                onClick={resetAuditFiltri}
+                className="rounded bg-slate-200 px-4 py-3 text-slate-800"
+              >
+                Reset filtri
+              </button>
+
+              <input
+                type="text"
+                value={auditFiltroTesto}
+                onChange={(e) => setAuditFiltroTesto(e.target.value)}
+                placeholder="Cerca per utente, azienda, record o dettaglio"
+                className="rounded border border-slate-300 p-3 md:col-span-5"
+              />
             </div>
 
             <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
               <table className="min-w-full border-collapse">
                 <thead className="bg-slate-100">
                   <tr>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Data e ora</th>
+                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Quando</th>
                     <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Utente</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Ruolo</th>
                     <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azienda</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Azione</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Tabella</th>
-                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Record</th>
+                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Operazione</th>
+                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Ambito</th>
+                    <th className="border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700">Dettaglio</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {auditLogs.length > 0 ? (
-                    auditLogs.map((log) => (
-                      <tr key={log.id} className="odd:bg-white even:bg-slate-50">
+                  {auditLogsFiltrati.length > 0 ? (
+                    auditLogsFiltrati.map((log) => (
+                      <tr key={log.id} className="odd:bg-white even:bg-slate-50 align-top">
                         <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {formatDateTime(log.created_at)}
+                          <div className="font-medium">{formatDateTime(log.created_at)}</div>
+                          <div className="mt-1 text-xs text-slate-500">{formatDateOnly(log.created_at)}</div>
                         </td>
                         <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.user_email || '—'}
-                        </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.role || '—'}
+                          <div className="font-medium">{log.user_email || '—'}</div>
+                          <div className="mt-1 text-xs text-slate-500">Ruolo: {log.role || '—'}</div>
                         </td>
                         <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
                           {log.azienda_id ? nomeAzienda(log.azienda_id) : '—'}
                         </td>
-                        <td className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800">
-                          {log.azione}
+                        <td className="border-b border-slate-200 px-4 py-3 text-sm">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${auditActionBadgeClass(log.azione)}`}>
+                            {auditActionLabel(log.azione)}
+                          </span>
                         </td>
                         <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.tabella}
+                          <div className="font-medium">{auditTableLabel(log.tabella)}</div>
+                          <div className="mt-1 text-xs text-slate-500">Record: {log.record_id || '—'}</div>
                         </td>
                         <td className="border-b border-slate-200 px-4 py-3 text-sm text-slate-800">
-                          {log.record_id || '—'}
+                          {auditDettagliSintesi(log)}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="px-4 py-4 text-sm text-slate-500">
-                        Nessuna attività registrata.
+                      <td colSpan={6} className="px-4 py-4 text-sm text-slate-500">
+                        Nessuna attività trovata con i filtri selezionati.
                       </td>
                     </tr>
                   )}
