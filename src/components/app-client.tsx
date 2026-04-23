@@ -1018,10 +1018,8 @@ export default function AppClient({
 
     y += 6
     doc.line(14, y, 80, y)
-    doc.line(120, y, 186, y)
     doc.setFontSize(9)
     doc.text('Firma operatore', 14, y + 5)
-    doc.text('Firma responsabile', 120, y + 5)
 
     const fileName = sanitizeFileName(`Checklist_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
@@ -1045,10 +1043,8 @@ export default function AppClient({
 
     y += 10
     doc.line(14, y, 80, y)
-    doc.line(120, y, 186, y)
     doc.setFontSize(9)
     doc.text('Firma operatore', 14, y + 5)
-    doc.text('Firma responsabile', 120, y + 5)
 
     const fileName = sanitizeFileName(`Esercitazione_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
@@ -1072,10 +1068,8 @@ export default function AppClient({
 
     y += 10
     doc.line(14, y, 80, y)
-    doc.line(120, y, 186, y)
     doc.setFontSize(9)
     doc.text('Firma operatore', 14, y + 5)
-    doc.text('Firma responsabile', 120, y + 5)
 
     const fileName = sanitizeFileName(`NonConformita_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
