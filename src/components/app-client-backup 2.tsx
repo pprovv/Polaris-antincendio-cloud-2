@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { createClient } from '@/lib/supabase/client'
 import { writeAuditLog } from '@/lib/audit-log'
@@ -43,7 +43,6 @@ type Registrazione = {
   scheda_id: string
   azienda_id: string
   payload?: RegistrazionePayload
-  firma_operatore_image?: string | null
 }
 
 type SchedaVoce = {
@@ -78,137 +77,6 @@ type Scadenza = {
   attiva: boolean
   created_at: string
   updated_at: string
-}
-
-
-type SignatureCanvasProps = {
-  value: string
-  onChange: (value: string) => void
-}
-
-function SignatureCanvas({ value, onChange }: SignatureCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const isDrawingRef = useRef(false)
-  const lastPointRef = useRef<{ x: number; y: number } | null>(null)
-
-  function getCtx() {
-    const canvas = canvasRef.current
-    if (!canvas) return null
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = 2
-    ctx.strokeStyle = '#0f172a'
-    return ctx
-  }
-
-  function clearCanvas(propagate = true) {
-    const canvas = canvasRef.current
-    const ctx = getCtx()
-    if (!canvas || !ctx) return
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    if (propagate) onChange('')
-  }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    canvas.width = 600
-    canvas.height = 180
-    clearCanvas(false)
-  }, [])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const ctx = getCtx()
-    if (!canvas || !ctx) return
-    clearCanvas(false)
-    if (!value) return
-    const img = new Image()
-    img.onload = () => {
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-    }
-    img.src = value
-  }, [value])
-
-  function getPoint(e: React.PointerEvent<HTMLCanvasElement>) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const scaleX = e.currentTarget.width / rect.width
-    const scaleY = e.currentTarget.height / rect.height
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-    }
-  }
-
-  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    const ctx = getCtx()
-    if (!ctx) return
-    const point = getPoint(e)
-    isDrawingRef.current = true
-    lastPointRef.current = point
-    e.currentTarget.setPointerCapture(e.pointerId)
-    ctx.beginPath()
-    ctx.moveTo(point.x, point.y)
-  }
-
-  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!isDrawingRef.current) return
-    const ctx = getCtx()
-    if (!ctx) return
-    const point = getPoint(e)
-    const lastPoint = lastPointRef.current
-    if (!lastPoint) {
-      lastPointRef.current = point
-      return
-    }
-    ctx.beginPath()
-    ctx.moveTo(lastPoint.x, lastPoint.y)
-    ctx.lineTo(point.x, point.y)
-    ctx.stroke()
-    lastPointRef.current = point
-  }
-
-  function finishDrawing() {
-    if (!isDrawingRef.current) return
-    isDrawingRef.current = false
-    lastPointRef.current = null
-    const canvas = canvasRef.current
-    if (!canvas) return
-    onChange(canvas.toDataURL('image/png'))
-  }
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 md:col-span-2">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-800">Firma operatore</h3>
-          <p className="text-sm text-slate-500">Traccia la firma con mouse o dito.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => clearCanvas(true)}
-          className="rounded bg-slate-200 px-3 py-2 text-sm text-slate-800"
-        >
-          Pulisci firma
-        </button>
-      </div>
-
-      <canvas
-        ref={canvasRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishDrawing}
-        onPointerLeave={finishDrawing}
-        onPointerCancel={finishDrawing}
-        className="h-40 w-full rounded border border-dashed border-slate-300 bg-white touch-none"
-        style={{ touchAction: 'none' }}
-      />
-    </div>
-  )
 }
 
 type Props = {
@@ -260,7 +128,6 @@ export default function AppClient({
   const [schedeChecklistSelezionate, setSchedeChecklistSelezionate] = useState<string[]>([])
   const [dataRegistrazione, setDataRegistrazione] = useState('')
   const [siglaOperatore, setSiglaOperatore] = useState('')
-  const [firmaOperatoreImage, setFirmaOperatoreImage] = useState('')
 
   // filtri registrazioni
   const [filtroAziendaId, setFiltroAziendaId] = useState('')
@@ -336,7 +203,7 @@ export default function AppClient({
 
       const { data: registrazioniData, error: registrazioniError } = await supabase
         .from('registrazioni')
-        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
+        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload')
         .order('data', { ascending: false })
       if (registrazioniError) throw registrazioniError
 
@@ -463,7 +330,6 @@ export default function AppClient({
     setSchedeChecklistSelezionate([])
     setDataRegistrazione('')
     setSiglaOperatore('')
-    setFirmaOperatoreImage('')
     setPersonePresenti('')
     setDescrizioneEsercitazione('')
     setDurataEsercitazione('')
@@ -710,14 +576,17 @@ export default function AppClient({
     await loadData()
   }
 
-  async function handleDeleteScadenza(id: string) {
-    const ok = window.confirm('Confermi la cancellazione definitiva della scadenza?')
+  async function handleAnnullaScadenza(id: string) {
+    const ok = window.confirm('Vuoi annullare questa scadenza?')
     if (!ok) return
 
-    const scadenzaDaCancellare = scadenze.find((s) => s.id === id) || null
+    const scadenzaDaAnnullare = scadenze.find((s) => s.id === id) || null
 
     const supabase = createClient()
-    const { error } = await supabase.from('scadenze').delete().eq('id', id)
+    const { error } = await supabase
+      .from('scadenze')
+      .update({ stato: 'annullata' })
+      .eq('id', id)
 
     if (error) {
       setErrore(error.message)
@@ -725,19 +594,19 @@ export default function AppClient({
     }
 
     await writeAuditLog({
-      aziendaId: scadenzaDaCancellare?.azienda_id ?? null,
-      azione: 'DELETE',
+      aziendaId: scadenzaDaAnnullare?.azienda_id ?? null,
+      azione: 'UPDATE',
       tabella: 'scadenze',
       recordId: id,
       dettagli: {
-        titolo: scadenzaDaCancellare?.titolo ?? null,
-        data: scadenzaDaCancellare?.data ?? null,
-        stato_precedente: scadenzaDaCancellare?.stato ?? null,
-        deleted: true,
+        titolo: scadenzaDaAnnullare?.titolo ?? null,
+        data: scadenzaDaAnnullare?.data ?? null,
+        stato_precedente: scadenzaDaAnnullare?.stato ?? null,
+        nuovo_stato: 'annullata',
       },
     })
 
-    setStatus('Scadenza cancellata')
+    setStatus('Scadenza annullata')
     await loadData()
   }
 
@@ -812,7 +681,6 @@ export default function AppClient({
             data: dataRegistrazione,
             note: null,
             operatore_sigla: siglaOperatore || null,
-            firma_operatore_image: firmaOperatoreImage || null,
             conferma: true,
             payload: {
               tipo_registrazione: 'checklist',
@@ -846,7 +714,6 @@ export default function AppClient({
           data: dataRegistrazione,
           note: null,
           operatore_sigla: siglaOperatore || null,
-          firma_operatore_image: firmaOperatoreImage || null,
           conferma: true,
           payload: {
             tipo_registrazione: 'checklist',
@@ -970,7 +837,6 @@ export default function AppClient({
     setSchedaSelezionata(reg.scheda_id)
     setDataRegistrazione(reg.data)
     setSiglaOperatore(reg.operatore_sigla || '')
-    setFirmaOperatoreImage(reg.firma_operatore_image || '')
 
     setSchedeChecklistSelezionate([])
     setPersonePresenti('')
@@ -1114,23 +980,6 @@ export default function AppClient({
     return { doc, azienda, scheda }
   }
 
-
-  function drawFirmaOperatore(doc: jsPDF, reg: Registrazione, y: number) {
-    doc.setFontSize(9)
-    doc.text('Firma operatore', 14, y + 5)
-    if (reg.firma_operatore_image) {
-      try {
-        doc.addImage(reg.firma_operatore_image, 'PNG', 14, y + 8, 55, 18)
-        return y + 30
-      } catch {
-        doc.line(14, y, 80, y)
-        return y + 10
-      }
-    }
-    doc.line(14, y, 80, y)
-    return y + 10
-  }
-
   function exportChecklistPdf(reg: Registrazione) {
     const { doc, azienda, scheda } = createBasePdf('Scheda di registrazione checklist', reg)
     let y = 64
@@ -1168,7 +1017,9 @@ export default function AppClient({
     }
 
     y += 6
-    y = drawFirmaOperatore(doc, reg, y)
+    doc.line(14, y, 80, y)
+    doc.setFontSize(9)
+    doc.text('Firma operatore', 14, y + 5)
 
     const fileName = sanitizeFileName(`Checklist_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
@@ -1191,7 +1042,9 @@ export default function AppClient({
     }
 
     y += 10
-    y = drawFirmaOperatore(doc, reg, y)
+    doc.line(14, y, 80, y)
+    doc.setFontSize(9)
+    doc.text('Firma operatore', 14, y + 5)
 
     const fileName = sanitizeFileName(`Esercitazione_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
@@ -1214,7 +1067,9 @@ export default function AppClient({
     }
 
     y += 10
-    y = drawFirmaOperatore(doc, reg, y)
+    doc.line(14, y, 80, y)
+    doc.setFontSize(9)
+    doc.text('Firma operatore', 14, y + 5)
 
     const fileName = sanitizeFileName(`NonConformita_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
@@ -1357,7 +1212,11 @@ let y = ySchedaEnd + 16
       }
 
       y += 10
-      y = drawFirmaOperatore(doc, reg, y)
+      doc.line(14, y, 80, y)
+      doc.line(120, y, 186, y)
+      doc.setFontSize(9)
+      doc.text('Firma operatore', 14, y + 5)
+      doc.text('Firma responsabile', 120, y + 5)
     })
 
     doc.save(titoloFile)
@@ -1761,6 +1620,7 @@ let y = ySchedaEnd + 16
             <option value="in_scadenza">In scadenza</option>
             <option value="scaduta">Scaduta</option>
             <option value="completata">Completata</option>
+            <option value="annullata">Annullata</option>
           </select>
 
           <input
@@ -1837,13 +1697,15 @@ let y = ySchedaEnd + 16
                               Completa
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteScadenza(scadenza.id)}
-                            className="rounded bg-red-600 px-3 py-1 text-white"
-                          >
-                            Cancella
-                          </button>
+                          {scadenza.stato !== 'annullata' && (
+                            <button
+                              type="button"
+                              onClick={() => handleAnnullaScadenza(scadenza.id)}
+                              className="rounded bg-red-600 px-3 py-1 text-white"
+                            >
+                              Annulla
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2470,12 +2332,6 @@ let y = ySchedaEnd + 16
             </div>
           )}
 
-
-          <SignatureCanvas
-            value={firmaOperatoreImage}
-            onChange={setFirmaOperatoreImage}
-          />
-
           <div className="flex gap-3 md:col-span-2">
             <button className="rounded bg-green-600 px-4 py-3 text-white">
               {registrazioneInModificaId ? 'Aggiorna registrazione' : 'Salva registrazione'}
@@ -2627,20 +2483,8 @@ let y = ySchedaEnd + 16
               <div><strong>Azienda:</strong> {nomeAzienda(registrazioneDettaglio.azienda_id)}</div>
               <div><strong>Scheda:</strong> {nomeScheda(registrazioneDettaglio.scheda_id)}</div>
               <div><strong>Sigla operatore:</strong> {registrazioneDettaglio.operatore_sigla || '—'}</div>
-              <div><strong>Firma grafica:</strong> {registrazioneDettaglio.firma_operatore_image ? 'presente' : 'assente'}</div>
               <div><strong>Note:</strong> {registrazioneDettaglio.note || '—'}</div>
             </div>
-
-            {registrazioneDettaglio.firma_operatore_image && (
-              <div className="mt-4">
-                <h4 className="font-semibold text-slate-800">Anteprima firma operatore</h4>
-                <img
-                  src={registrazioneDettaglio.firma_operatore_image}
-                  alt="Firma operatore"
-                  className="mt-2 h-24 rounded border border-slate-200 bg-white p-2"
-                />
-              </div>
-            )}
 
             {registrazioneDettaglio.payload?.tipo_registrazione === 'checklist' && (
               <div className="mt-4">

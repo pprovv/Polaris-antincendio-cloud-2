@@ -710,14 +710,17 @@ export default function AppClient({
     await loadData()
   }
 
-  async function handleDeleteScadenza(id: string) {
-    const ok = window.confirm('Confermi la cancellazione definitiva della scadenza?')
+  async function handleAnnullaScadenza(id: string) {
+    const ok = window.confirm('Vuoi annullare questa scadenza?')
     if (!ok) return
 
-    const scadenzaDaCancellare = scadenze.find((s) => s.id === id) || null
+    const scadenzaDaAnnullare = scadenze.find((s) => s.id === id) || null
 
     const supabase = createClient()
-    const { error } = await supabase.from('scadenze').delete().eq('id', id)
+    const { error } = await supabase
+      .from('scadenze')
+      .update({ stato: 'annullata' })
+      .eq('id', id)
 
     if (error) {
       setErrore(error.message)
@@ -725,19 +728,19 @@ export default function AppClient({
     }
 
     await writeAuditLog({
-      aziendaId: scadenzaDaCancellare?.azienda_id ?? null,
-      azione: 'DELETE',
+      aziendaId: scadenzaDaAnnullare?.azienda_id ?? null,
+      azione: 'UPDATE',
       tabella: 'scadenze',
       recordId: id,
       dettagli: {
-        titolo: scadenzaDaCancellare?.titolo ?? null,
-        data: scadenzaDaCancellare?.data ?? null,
-        stato_precedente: scadenzaDaCancellare?.stato ?? null,
-        deleted: true,
+        titolo: scadenzaDaAnnullare?.titolo ?? null,
+        data: scadenzaDaAnnullare?.data ?? null,
+        stato_precedente: scadenzaDaAnnullare?.stato ?? null,
+        nuovo_stato: 'annullata',
       },
     })
 
-    setStatus('Scadenza cancellata')
+    setStatus('Scadenza annullata')
     await loadData()
   }
 
@@ -1761,6 +1764,7 @@ let y = ySchedaEnd + 16
             <option value="in_scadenza">In scadenza</option>
             <option value="scaduta">Scaduta</option>
             <option value="completata">Completata</option>
+            <option value="annullata">Annullata</option>
           </select>
 
           <input
@@ -1837,13 +1841,15 @@ let y = ySchedaEnd + 16
                               Completa
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteScadenza(scadenza.id)}
-                            className="rounded bg-red-600 px-3 py-1 text-white"
-                          >
-                            Cancella
-                          </button>
+                          {scadenza.stato !== 'annullata' && (
+                            <button
+                              type="button"
+                              onClick={() => handleAnnullaScadenza(scadenza.id)}
+                              className="rounded bg-red-600 px-3 py-1 text-white"
+                            >
+                              Annulla
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
