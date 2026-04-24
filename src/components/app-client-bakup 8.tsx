@@ -1371,7 +1371,7 @@ let y = ySchedaEnd + 16
   }
 
 
-  async function exportRegistroCompletoPeriodoPdf() {
+  function exportRegistroCompletoPeriodoPdf() {
     setErrore('')
 
     if (!registroCompletoAziendaId) {
@@ -1395,21 +1395,11 @@ let y = ySchedaEnd + 16
       return
     }
 
-    const supabase = createClient()
-    const { data: regsData, error: regsError } = await supabase
-      .from('registrazioni')
-      .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-      .eq('azienda_id', registroCompletoAziendaId)
-      .gte('data', registroCompletoDataDa)
-      .lte('data', registroCompletoDataA)
-      .order('data', { ascending: true })
-
-    if (regsError) {
-      setErrore(`Errore durante il caricamento delle registrazioni: ${regsError.message}`)
-      return
-    }
-
-    const regs = (regsData || []) as Registrazione[]
+    const regs = getRegistrazioniAziendaPerRange(
+      registroCompletoAziendaId,
+      registroCompletoDataDa,
+      registroCompletoDataA
+    )
 
     if (regs.length === 0) {
       setErrore('Nessuna registrazione trovata per l’azienda e il periodo selezionati')
