@@ -879,7 +879,6 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
-        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'esercitazione',
@@ -919,7 +918,6 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
-        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'non_conformita',
