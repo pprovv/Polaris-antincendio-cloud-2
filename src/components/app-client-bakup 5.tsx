@@ -855,18 +855,11 @@ export default function AppClient({
         }
       })
 
-      const { data: insertedChecklistRows, error } = await supabase
-        .from('registrazioni')
-        .insert(payloads)
-        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
+      const { error } = await supabase.from('registrazioni').insert(payloads)
 
       if (error) {
         setErrore(error.message)
         return
-      }
-
-      if ((insertedChecklistRows || []).length > 1) {
-        exportChecklistMultiploPdf((insertedChecklistRows || []) as Registrazione[])
       }
 
       resetFormRegistrazione()
@@ -1180,81 +1173,6 @@ export default function AppClient({
     y = drawFirmaOperatore(doc, reg, y)
 
     const fileName = sanitizeFileName(`Checklist_${reg.data}_${azienda}_${scheda}.pdf`)
-    doc.save(fileName)
-  }
-
-  function exportChecklistMultiploPdf(regs: Registrazione[]) {
-    if (regs.length === 0) return
-
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const azienda = nomeAzienda(regs[0].azienda_id)
-    const dataRegistro = regs[0].data
-
-    regs.forEach((reg, index) => {
-      if (index > 0) doc.addPage()
-
-      const scheda = nomeScheda(reg.scheda_id)
-
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(16)
-      doc.text('Registro sorveglianza antincendio', 14, 18)
-
-      doc.setFontSize(13)
-      doc.text('Schede di registrazione checklist', 14, 27)
-
-      doc.setDrawColor(180)
-      doc.line(14, 31, 196, 31)
-
-      doc.setFontSize(10)
-      doc.setFont('helvetica', 'normal')
-      doc.text(`Azienda: ${nomeAzienda(reg.azienda_id)}`, 14, 40)
-
-      const schedaLines = doc.splitTextToSize(`Scheda: ${scheda}`, 100)
-      doc.text(schedaLines, 14, 46)
-      const ySchedaEnd = 46 + schedaLines.length * 6
-
-      doc.text(`Data: ${reg.data}`, 14, ySchedaEnd + 6)
-      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, 40)
-
-      let y = ySchedaEnd + 18
-
-      doc.setFont('helvetica', 'bold')
-      doc.text('Controlli previsti', 14, y)
-      y += 8
-      doc.setFont('helvetica', 'normal')
-
-      const voci = reg.payload?.voci_visualizzate || []
-
-      if (voci.length === 0) {
-        doc.text('Nessun controllo disponibile.', 14, y)
-        y += 8
-      } else {
-        voci.forEach((voce, voceIndex) => {
-          const lines = splitText(doc, `${voceIndex + 1}. ${voce.testo}`, 175)
-
-          if (y > 270) {
-            doc.addPage()
-            y = 20
-          }
-
-          lines.forEach((line: string) => {
-            doc.text(line, 16, y)
-            y += 6
-          })
-          y += 2
-        })
-      }
-
-      if (y > 250) {
-        doc.addPage()
-        y = 20
-      }
-
-      y += 6
-      y = drawFirmaOperatore(doc, reg, y)
-    })
-
-    const fileName = sanitizeFileName(`Registro_Checklist_${dataRegistro}_${azienda}.pdf`)
     doc.save(fileName)
   }
 
