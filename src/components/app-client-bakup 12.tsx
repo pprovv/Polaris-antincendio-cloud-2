@@ -870,16 +870,8 @@ export default function AppClient({
         return
       }
 
-      const checklistRowsForPdf =
-        insertedChecklistRows && insertedChecklistRows.length === payloads.length
-          ? (insertedChecklistRows as Registrazione[])
-          : (payloads.map((payload, index) => ({
-              id: `temp-checklist-${index}`,
-              ...payload,
-            })) as Registrazione[])
-
-      if (schedeChecklistSelezionate.length > 1) {
-        exportChecklistMultiploPdf(checklistRowsForPdf)
+      if ((insertedChecklistRows || []).length > 1) {
+        exportChecklistMultiploPdf((insertedChecklistRows || []) as Registrazione[])
         setStatus('Registrazioni salvate correttamente. PDF unico generato.')
       } else {
         setStatus('Registrazione salvata correttamente.')
