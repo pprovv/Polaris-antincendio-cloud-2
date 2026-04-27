@@ -248,11 +248,6 @@ export default function AppClient({
   const [exportDataDa, setExportDataDa] = useState('')
   const [exportDataA, setExportDataA] = useState('')
 
-  // export registro completo per azienda e periodo
-  const [registroCompletoAziendaId, setRegistroCompletoAziendaId] = useState('')
-  const [registroCompletoDataDa, setRegistroCompletoDataDa] = useState('')
-  const [registroCompletoDataA, setRegistroCompletoDataA] = useState('')
-
   // form azienda
   const [aziendaInModificaId, setAziendaInModificaId] = useState<string | null>(null)
   const [ragioneSocialeAzienda, setRagioneSocialeAzienda] = useState('')
@@ -1225,44 +1220,27 @@ export default function AppClient({
     doc.save(fileName)
   }
 
-  async function exportRegistrazionePdf(reg: Registrazione) {
-    let regPdf = reg
-
-    try {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('registrazioni')
-        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-        .eq('id', reg.id)
-        .maybeSingle()
-
-      if (data) {
-        regPdf = data as Registrazione
-      }
-    } catch {
-      regPdf = reg
-    }
-
-    const tipo = regPdf.payload?.tipo_registrazione
+  function exportRegistrazionePdf(reg: Registrazione) {
+    const tipo = reg.payload?.tipo_registrazione
 
     if (tipo === 'checklist') {
-      exportChecklistPdf(regPdf)
+      exportChecklistPdf(reg)
       return
     }
 
     if (tipo === 'esercitazione') {
-      exportEsercitazionePdf(regPdf)
+      exportEsercitazionePdf(reg)
       return
     }
 
     if (tipo === 'non_conformita') {
-      exportNonConformitaPdf(regPdf)
+      exportNonConformitaPdf(reg)
       return
     }
 
-    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', regPdf)
+    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', reg)
     doc.text('Formato registrazione non riconosciuto.', 14, 64)
-    const fileName = sanitizeFileName(`Registrazione_${regPdf.data}_${azienda}_${scheda}.pdf`)
+    const fileName = sanitizeFileName(`Registrazione_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
   }
 
@@ -1383,161 +1361,6 @@ let y = ySchedaEnd + 16
     })
 
     doc.save(titoloFile)
-  }
-
-  async function exportRegistroCompletoPeriodoPdf() {
-    setErrore('')
-
-    if (!registroCompletoAziendaId) {
-      setErrore('Seleziona un’azienda per esportare il registro completo')
-      return
-    }
-
-    if (!registroCompletoDataDa || !registroCompletoDataA) {
-      setErrore('Inserisci sia la data iniziale sia la data finale')
-      return
-    }
-
-    if (registroCompletoDataDa > registroCompletoDataA) {
-      setErrore('La data iniziale non può essere successiva alla data finale')
-      return
-    }
-
-    const aziendaObj = aziende.find((a) => a.id === registroCompletoAziendaId)
-    const azienda = aziendaObj?.ragione_sociale || 'Azienda'
-    const sede = aziendaObj?.sede || '—'
-
-    const supabase = createClient()
-    const { data: regsData, error } = await supabase
-      .from('registrazioni')
-      .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-      .eq('azienda_id', registroCompletoAziendaId)
-      .gte('data', registroCompletoDataDa)
-      .lte('data', registroCompletoDataA)
-      .order('data', { ascending: true })
-
-    if (error) {
-      setErrore(error.message)
-      return
-    }
-
-    const regs = (regsData || []) as Registrazione[]
-
-    if (regs.length === 0) {
-      setErrore('Nessuna registrazione trovata per il periodo selezionato')
-      return
-    }
-
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(18)
-    doc.text('Registro sorveglianza antincendio', 14, 24)
-
-    doc.setFontSize(14)
-    doc.text('Registro completo per azienda e periodo', 14, 36)
-
-    doc.setDrawColor(180)
-    doc.line(14, 42, 196, 42)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(11)
-    doc.text(`Azienda: ${azienda}`, 14, 56)
-    doc.text(`Sede: ${sede}`, 14, 64)
-    doc.text(`Periodo: dal ${registroCompletoDataDa} al ${registroCompletoDataA}`, 14, 72)
-    doc.text(`Numero registrazioni: ${regs.length}`, 14, 80)
-
-    doc.setFontSize(9)
-    doc.text(`Documento generato il ${new Date().toLocaleDateString('it-IT')}`, 14, 288)
-
-    regs.forEach((reg, index) => {
-      doc.addPage()
-
-      const scheda = nomeScheda(reg.scheda_id)
-      const tipo = reg.payload?.tipo_registrazione || 'registrazione'
-
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(16)
-      doc.text('Registro sorveglianza antincendio', 14, 18)
-
-      doc.setDrawColor(180)
-      doc.line(14, 24, 196, 24)
-
-      doc.setFontSize(10)
-      doc.setFont('helvetica', 'normal')
-      doc.text(`Azienda: ${azienda}`, 14, 34)
-
-      const schedaLines = doc.splitTextToSize(`Scheda: ${scheda}`, 100)
-      doc.text(schedaLines, 14, 40)
-      const ySchedaEnd = 40 + schedaLines.length * 6
-
-      doc.text(`Data: ${reg.data}`, 14, ySchedaEnd + 6)
-      doc.text(`Tipo: ${tipo}`, 120, 34)
-      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, 40)
-
-      let y = ySchedaEnd + 16
-
-      if (tipo === 'checklist') {
-        doc.setFont('helvetica', 'bold')
-        doc.text('Controlli previsti', 14, y)
-        y += 8
-        doc.setFont('helvetica', 'normal')
-
-        const voci = reg.payload?.voci_visualizzate || []
-        if (voci.length === 0) {
-          doc.text('Nessun controllo disponibile.', 14, y)
-          y += 8
-        } else {
-          voci.forEach((voce, idx) => {
-            const lines = splitText(doc, `${idx + 1}. ${voce.testo}`, 175)
-            lines.forEach((line: string) => {
-              if (y > 270) {
-                doc.addPage()
-                y = 20
-              }
-              doc.text(line, 16, y)
-              y += 6
-            })
-            y += 2
-          })
-        }
-      } else if (tipo === 'esercitazione') {
-        const p = reg.payload || {}
-        y = drawWrappedBlock(doc, 'Persone presenti:', p.persone_presenti || '-', y)
-        y = drawWrappedBlock(doc, 'Descrizione esercitazione:', p.descrizione || '-', y)
-        y = drawWrappedBlock(doc, 'Durata:', p.durata || '-', y)
-        y = drawWrappedBlock(doc, 'Osservazioni:', p.osservazioni || '-', y)
-        y = drawWrappedBlock(doc, 'Responsabile:', p.responsabile || '-', y)
-      } else if (tipo === 'non_conformita') {
-        const p = reg.payload || {}
-        y = drawWrappedBlock(doc, 'Descrizione non conformità:', p.descrizione_nc || '-', y)
-        y = drawWrappedBlock(doc, 'Azione correttiva:', p.azione_correttiva || '-', y)
-        y = drawWrappedBlock(doc, 'Documentazione prodotta:', p.documentazione || '-', y)
-        y = drawWrappedBlock(doc, 'Verifica finale:', p.verifica_finale || '-', y)
-        y = drawWrappedBlock(doc, 'Data chiusura:', p.data_chiusura || '-', y)
-      } else {
-        doc.text('Formato registrazione non riconosciuto.', 14, y)
-        y += 8
-      }
-
-      if (y > 250) {
-        doc.addPage()
-        y = 20
-      }
-
-      y += 10
-      drawFirmaOperatore(doc, reg, y)
-
-      doc.setFontSize(8)
-      doc.setFont('helvetica', 'normal')
-      doc.text(`Pagina registrazione ${index + 1} di ${regs.length}`, 14, 288)
-    })
-
-    const fileName = sanitizeFileName(
-      `Registro_Completo_${azienda}_${registroCompletoDataDa}_${registroCompletoDataA}.pdf`
-    )
-    doc.save(fileName)
-    setStatus('Registro completo PDF generato correttamente')
   }
 
   const aziendaDettaglio = useMemo(() => {
@@ -1736,50 +1559,6 @@ let y = ySchedaEnd + 16
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
               <div className="text-sm text-slate-500">Completate</div>
               <div className="mt-2 text-3xl font-bold text-green-600">{totaleScadenzeCompletate}</div>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">Esporta registro completo</h3>
-              <p className="mt-1 text-sm text-slate-500">Genera un unico PDF con tutte le registrazioni dell’azienda nel periodo selezionato.</p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-4">
-              <select
-                value={registroCompletoAziendaId}
-                onChange={(e) => setRegistroCompletoAziendaId(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              >
-                <option value="">Seleziona azienda</option>
-                {aziendeVisibili.map((az) => (
-                  <option key={az.id} value={az.id}>
-                    {az.ragione_sociale}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="date"
-                value={registroCompletoDataDa}
-                onChange={(e) => setRegistroCompletoDataDa(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              />
-
-              <input
-                type="date"
-                value={registroCompletoDataA}
-                onChange={(e) => setRegistroCompletoDataA(e.target.value)}
-                className="rounded border border-slate-300 p-3"
-              />
-
-              <button
-                type="button"
-                onClick={exportRegistroCompletoPeriodoPdf}
-                className="rounded bg-indigo-600 px-4 py-3 text-white"
-              >
-                Genera registro PDF
-              </button>
             </div>
           </div>
 
