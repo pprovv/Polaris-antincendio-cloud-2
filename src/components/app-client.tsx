@@ -376,6 +376,11 @@ export default function AppClient({
     }
   }
 
+  useEffect(() => {
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function handleAziendaSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErrore('')
@@ -870,28 +875,16 @@ export default function AppClient({
         return
       }
 
-      const righeInserite = (insertedChecklistRows || []) as Registrazione[]
-
-      const righePerPdfMultiplo: Registrazione[] = schedeChecklistSelezionate.map((schedaId, index) => {
-        const rigaInserita = righeInserite.find((r) => r.scheda_id === schedaId) || righeInserite[index]
-        const payloadLocale = payloads.find((p) => p.scheda_id === schedaId)
-
-        return {
-          id: rigaInserita?.id || `temp-${schedaId}`,
-          data: rigaInserita?.data || dataRegistrazione,
-          note: null,
-          operatore_sigla: rigaInserita?.operatore_sigla ?? (siglaOperatore || null),
-          conferma: rigaInserita?.conferma ?? true,
-          scheda_id: schedaId,
-          azienda_id: rigaInserita?.azienda_id || aziendaEffettiva,
-          payload: rigaInserita?.payload || payloadLocale?.payload || null,
-          firma_operatore_image:
-            rigaInserita?.firma_operatore_image ?? (firmaOperatoreImage || null),
-        }
-      })
-
       if (schedeChecklistSelezionate.length > 1) {
-        exportChecklistMultiploPdf(righePerPdfMultiplo)
+        const rowsForPdf =
+          insertedChecklistRows && insertedChecklistRows.length > 0
+            ? (insertedChecklistRows as Registrazione[])
+            : (payloads.map((payload, index) => ({
+                id: `temp-${index}`,
+                ...payload,
+              })) as Registrazione[])
+
+        exportChecklistMultiploPdf(rowsForPdf)
         setStatus('Registrazioni salvate correttamente. PDF unico generato.')
       } else {
         setStatus('Registrazione salvata correttamente.')
@@ -914,7 +907,6 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
-        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'esercitazione',
@@ -954,7 +946,6 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
-        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'non_conformita',
@@ -1216,41 +1207,42 @@ export default function AppClient({
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const azienda = nomeAzienda(regs[0].azienda_id)
-    const dataRegistro = regs[0].data
+    const data = regs[0].data
+    const fileName = sanitizeFileName(`Registro_Checklist_${data}_${azienda}.pdf`)
 
     regs.forEach((reg, index) => {
       if (index > 0) doc.addPage()
 
       const scheda = nomeScheda(reg.scheda_id)
+      let y = 18
 
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(16)
-      doc.text('Registro sorveglianza antincendio', 14, 18)
+      doc.text('Registro sorveglianza antincendio', 14, y)
 
       doc.setFontSize(13)
-      doc.text('Schede di registrazione checklist', 14, 27)
+      doc.text('Schede di registrazione checklist', 14, y + 9)
 
       doc.setDrawColor(180)
-      doc.line(14, 31, 196, 31)
+      doc.line(14, y + 13, 196, y + 13)
 
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Azienda: ${nomeAzienda(reg.azienda_id)}`, 14, 40)
+      doc.text(`Azienda: ${azienda}`, 14, y + 22)
 
       const schedaLines = doc.splitTextToSize(`Scheda: ${scheda}`, 100)
-      doc.text(schedaLines, 14, 46)
-      const ySchedaEnd = 46 + schedaLines.length * 6
+      doc.text(schedaLines, 14, y + 28)
+      const ySchedaEnd = y + 28 + schedaLines.length * 6
 
       doc.text(`Data: ${reg.data}`, 14, ySchedaEnd + 6)
-      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, 40)
+      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, y + 22)
 
-      let y = ySchedaEnd + 18
-
+      y = ySchedaEnd + 18
       doc.setFont('helvetica', 'bold')
       doc.text('Controlli previsti', 14, y)
       y += 8
-      doc.setFont('helvetica', 'normal')
 
+      doc.setFont('helvetica', 'normal')
       const voci = reg.payload?.voci_visualizzate || []
 
       if (voci.length === 0) {
@@ -1260,15 +1252,15 @@ export default function AppClient({
         voci.forEach((voce, voceIndex) => {
           const lines = splitText(doc, `${voceIndex + 1}. ${voce.testo}`, 175)
 
-          if (y > 270) {
-            doc.addPage()
-            y = 20
-          }
-
           lines.forEach((line: string) => {
+            if (y > 270) {
+              doc.addPage()
+              y = 20
+            }
             doc.text(line, 16, y)
             y += 6
           })
+
           y += 2
         })
       }
@@ -1279,10 +1271,9 @@ export default function AppClient({
       }
 
       y += 6
-      y = drawFirmaOperatore(doc, reg, y)
+      drawFirmaOperatore(doc, reg, y)
     })
 
-    const fileName = sanitizeFileName(`Registro_Checklist_${dataRegistro}_${azienda}.pdf`)
     doc.save(fileName)
   }
 
