@@ -316,11 +316,6 @@ export default function AppClient({
     }
   }, [isCliente, userAziendaId])
 
-  useEffect(() => {
-    loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   async function loadData() {
     try {
       const supabase = createClient()
@@ -907,7 +902,6 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
-        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'esercitazione',
@@ -947,7 +941,6 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
-        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'non_conformita',
@@ -1325,44 +1318,27 @@ export default function AppClient({
     doc.save(fileName)
   }
 
-  async function exportRegistrazionePdf(reg: Registrazione) {
-    let regCompleta = reg
-
-    try {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('registrazioni')
-        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-        .eq('id', reg.id)
-        .maybeSingle()
-
-      if (data) {
-        regCompleta = data as Registrazione
-      }
-    } catch {
-      regCompleta = reg
-    }
-
-    const tipo = regCompleta.payload?.tipo_registrazione
+  function exportRegistrazionePdf(reg: Registrazione) {
+    const tipo = reg.payload?.tipo_registrazione
 
     if (tipo === 'checklist') {
-      exportChecklistPdf(regCompleta)
+      exportChecklistPdf(reg)
       return
     }
 
     if (tipo === 'esercitazione') {
-      exportEsercitazionePdf(regCompleta)
+      exportEsercitazionePdf(reg)
       return
     }
 
     if (tipo === 'non_conformita') {
-      exportNonConformitaPdf(regCompleta)
+      exportNonConformitaPdf(reg)
       return
     }
 
-    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', regCompleta)
+    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', reg)
     doc.text('Formato registrazione non riconosciuto.', 14, 64)
-    const fileName = sanitizeFileName(`Registrazione_${regCompleta.data}_${azienda}_${scheda}.pdf`)
+    const fileName = sanitizeFileName(`Registrazione_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
   }
 
