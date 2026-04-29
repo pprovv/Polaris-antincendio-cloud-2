@@ -855,11 +855,41 @@ export default function AppClient({
         }
       })
 
-      const { error } = await supabase.from('registrazioni').insert(payloads)
+      const { data: insertedChecklistRows, error } = await supabase
+        .from('registrazioni')
+        .insert(payloads)
+        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
 
       if (error) {
         setErrore(error.message)
         return
+      }
+
+      const righeInserite = (insertedChecklistRows || []) as Registrazione[]
+
+      const righePerPdfMultiplo: Registrazione[] = schedeChecklistSelezionate.map((schedaId, index) => {
+        const rigaInserita = righeInserite.find((r) => r.scheda_id === schedaId) || righeInserite[index]
+        const payloadLocale = payloads.find((p) => p.scheda_id === schedaId)
+
+        return {
+          id: rigaInserita?.id || `temp-${schedaId}`,
+          data: rigaInserita?.data || dataRegistrazione,
+          note: null,
+          operatore_sigla: rigaInserita?.operatore_sigla ?? (siglaOperatore || null),
+          conferma: rigaInserita?.conferma ?? true,
+          scheda_id: schedaId,
+          azienda_id: rigaInserita?.azienda_id || aziendaEffettiva,
+          payload: rigaInserita?.payload || payloadLocale?.payload || null,
+          firma_operatore_image:
+            rigaInserita?.firma_operatore_image ?? (firmaOperatoreImage || null),
+        }
+      })
+
+      if (schedeChecklistSelezionate.length > 1) {
+        exportChecklistMultiploPdf(righePerPdfMultiplo)
+        setStatus('Registrazioni salvate correttamente. PDF unico generato.')
+      } else {
+        setStatus('Registrazione salvata correttamente.')
       }
 
       resetFormRegistrazione()
@@ -879,6 +909,7 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
+        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'esercitazione',
@@ -918,6 +949,7 @@ export default function AppClient({
         data: dataRegistrazione,
         note: null,
         operatore_sigla: siglaOperatore || null,
+        firma_operatore_image: firmaOperatoreImage || null,
         conferma: true,
         payload: {
           tipo_registrazione: 'non_conformita',
@@ -1174,6 +1206,81 @@ export default function AppClient({
     doc.save(fileName)
   }
 
+  function exportChecklistMultiploPdf(regs: Registrazione[]) {
+    if (regs.length === 0) return
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const azienda = nomeAzienda(regs[0].azienda_id)
+    const dataRegistro = regs[0].data
+
+    regs.forEach((reg, index) => {
+      if (index > 0) doc.addPage()
+
+      const scheda = nomeScheda(reg.scheda_id)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(16)
+      doc.text('Registro sorveglianza antincendio', 14, 18)
+
+      doc.setFontSize(13)
+      doc.text('Schede di registrazione checklist', 14, 27)
+
+      doc.setDrawColor(180)
+      doc.line(14, 31, 196, 31)
+
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Azienda: ${nomeAzienda(reg.azienda_id)}`, 14, 40)
+
+      const schedaLines = doc.splitTextToSize(`Scheda: ${scheda}`, 100)
+      doc.text(schedaLines, 14, 46)
+      const ySchedaEnd = 46 + schedaLines.length * 6
+
+      doc.text(`Data: ${reg.data}`, 14, ySchedaEnd + 6)
+      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, 40)
+
+      let y = ySchedaEnd + 18
+
+      doc.setFont('helvetica', 'bold')
+      doc.text('Controlli previsti', 14, y)
+      y += 8
+      doc.setFont('helvetica', 'normal')
+
+      const voci = reg.payload?.voci_visualizzate || []
+
+      if (voci.length === 0) {
+        doc.text('Nessun controllo disponibile.', 14, y)
+        y += 8
+      } else {
+        voci.forEach((voce, voceIndex) => {
+          const lines = splitText(doc, `${voceIndex + 1}. ${voce.testo}`, 175)
+
+          if (y > 270) {
+            doc.addPage()
+            y = 20
+          }
+
+          lines.forEach((line: string) => {
+            doc.text(line, 16, y)
+            y += 6
+          })
+          y += 2
+        })
+      }
+
+      if (y > 250) {
+        doc.addPage()
+        y = 20
+      }
+
+      y += 6
+      y = drawFirmaOperatore(doc, reg, y)
+    })
+
+    const fileName = sanitizeFileName(`Registro_Checklist_${dataRegistro}_${azienda}.pdf`)
+    doc.save(fileName)
+  }
+
   function exportEsercitazionePdf(reg: Registrazione) {
     const { doc, azienda, scheda } = createBasePdf('Verbale esercitazione antincendio', reg)
     let y = 64
@@ -1220,48 +1327,27 @@ export default function AppClient({
     doc.save(fileName)
   }
 
-  async function getRegistrazioneCompletaPerPdf(reg: Registrazione) {
-    // In alcune viste lo stato locale può non contenere ancora la firma grafica,
-    // soprattutto dopo registrazioni checklist multiple o dopo ricaricamenti parziali.
-    // Per l'export singolo rileggo quindi la riga da Supabase e includo esplicitamente
-    // firma_operatore_image, così il PDF usa sempre il dato reale salvato a database.
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('registrazioni')
-        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-        .eq('id', reg.id)
-        .maybeSingle()
-
-      if (error || !data) return reg
-      return data as Registrazione
-    } catch {
-      return reg
-    }
-  }
-
-  async function exportRegistrazionePdf(reg: Registrazione) {
-    const regCompleta = await getRegistrazioneCompletaPerPdf(reg)
-    const tipo = regCompleta.payload?.tipo_registrazione
+  function exportRegistrazionePdf(reg: Registrazione) {
+    const tipo = reg.payload?.tipo_registrazione
 
     if (tipo === 'checklist') {
-      exportChecklistPdf(regCompleta)
+      exportChecklistPdf(reg)
       return
     }
 
     if (tipo === 'esercitazione') {
-      exportEsercitazionePdf(regCompleta)
+      exportEsercitazionePdf(reg)
       return
     }
 
     if (tipo === 'non_conformita') {
-      exportNonConformitaPdf(regCompleta)
+      exportNonConformitaPdf(reg)
       return
     }
 
-    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', regCompleta)
+    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', reg)
     doc.text('Formato registrazione non riconosciuto.', 14, 64)
-    const fileName = sanitizeFileName(`Registrazione_${regCompleta.data}_${azienda}_${scheda}.pdf`)
+    const fileName = sanitizeFileName(`Registrazione_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
   }
 
