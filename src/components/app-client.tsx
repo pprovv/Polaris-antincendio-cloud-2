@@ -248,10 +248,12 @@ export default function AppClient({
   const [exportDataDa, setExportDataDa] = useState('')
   const [exportDataA, setExportDataA] = useState('')
 
-  // export registro completo per azienda e periodo
-  const [registroCompletoAziendaId, setRegistroCompletoAziendaId] = useState('')
-  const [registroCompletoDataDa, setRegistroCompletoDataDa] = useState('')
-  const [registroCompletoDataA, setRegistroCompletoDataA] = useState('')
+  // export registro checklist compatto (mese oppure range date)
+  const [registroMensileAziendaId, setRegistroMensileAziendaId] = useState('')
+  const [registroMensileMese, setRegistroMensileMese] = useState(new Date().toISOString().slice(0, 7))
+  const [registroCompattoModo, setRegistroCompattoModo] = useState<'mese' | 'range'>('mese')
+  const [registroCompattoDataDa, setRegistroCompattoDataDa] = useState('')
+  const [registroCompattoDataA, setRegistroCompattoDataA] = useState('')
 
   // form azienda
   const [aziendaInModificaId, setAziendaInModificaId] = useState<string | null>(null)
@@ -313,6 +315,7 @@ export default function AppClient({
       setFiltroAziendaId(userAziendaId)
       setScadenzaAziendaId(userAziendaId)
       setFiltroScadenzaAziendaId(userAziendaId)
+      setRegistroMensileAziendaId(userAziendaId)
     }
   }, [isCliente, userAziendaId])
 
@@ -875,16 +878,28 @@ export default function AppClient({
         return
       }
 
-      if (schedeChecklistSelezionate.length > 1) {
-        const rowsForPdf =
-          insertedChecklistRows && insertedChecklistRows.length > 0
-            ? (insertedChecklistRows as Registrazione[])
-            : (payloads.map((payload, index) => ({
-                id: `temp-${index}`,
-                ...payload,
-              })) as Registrazione[])
+      const righeInserite = (insertedChecklistRows || []) as Registrazione[]
 
-        exportChecklistMultiploPdf(rowsForPdf)
+      const righePerPdfMultiplo: Registrazione[] = schedeChecklistSelezionate.map((schedaId, index) => {
+        const rigaInserita = righeInserite.find((r) => r.scheda_id === schedaId) || righeInserite[index]
+        const payloadLocale = payloads.find((payload) => payload.scheda_id === schedaId)
+
+        return {
+          id: rigaInserita?.id || `temp-${schedaId}`,
+          data: rigaInserita?.data || dataRegistrazione,
+          note: null,
+          operatore_sigla: rigaInserita?.operatore_sigla ?? (siglaOperatore || null),
+          conferma: rigaInserita?.conferma ?? true,
+          scheda_id: schedaId,
+          azienda_id: rigaInserita?.azienda_id || aziendaEffettiva,
+          payload: rigaInserita?.payload || payloadLocale?.payload || null,
+          firma_operatore_image:
+            rigaInserita?.firma_operatore_image ?? (firmaOperatoreImage || null),
+        }
+      })
+
+      if (schedeChecklistSelezionate.length > 1) {
+        exportChecklistMultiploPdf(righePerPdfMultiplo)
         setStatus('Registrazioni salvate correttamente. PDF unico generato.')
       } else {
         setStatus('Registrazione salvata correttamente.')
@@ -1209,42 +1224,41 @@ export default function AppClient({
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const azienda = nomeAzienda(regs[0].azienda_id)
-    const data = regs[0].data
-    const fileName = sanitizeFileName(`Registro_Checklist_${data}_${azienda}.pdf`)
+    const dataRegistro = regs[0].data
 
     regs.forEach((reg, index) => {
       if (index > 0) doc.addPage()
 
       const scheda = nomeScheda(reg.scheda_id)
-      let y = 18
 
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(16)
-      doc.text('Registro sorveglianza antincendio', 14, y)
+      doc.text('Registro sorveglianza antincendio', 14, 18)
 
       doc.setFontSize(13)
-      doc.text('Schede di registrazione checklist', 14, y + 9)
+      doc.text('Schede di registrazione checklist', 14, 27)
 
       doc.setDrawColor(180)
-      doc.line(14, y + 13, 196, y + 13)
+      doc.line(14, 31, 196, 31)
 
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Azienda: ${azienda}`, 14, y + 22)
+      doc.text(`Azienda: ${nomeAzienda(reg.azienda_id)}`, 14, 40)
 
       const schedaLines = doc.splitTextToSize(`Scheda: ${scheda}`, 100)
-      doc.text(schedaLines, 14, y + 28)
-      const ySchedaEnd = y + 28 + schedaLines.length * 6
+      doc.text(schedaLines, 14, 46)
+      const ySchedaEnd = 46 + schedaLines.length * 6
 
       doc.text(`Data: ${reg.data}`, 14, ySchedaEnd + 6)
-      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, y + 22)
+      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, 40)
 
-      y = ySchedaEnd + 18
+      let y = ySchedaEnd + 18
+
       doc.setFont('helvetica', 'bold')
       doc.text('Controlli previsti', 14, y)
       y += 8
-
       doc.setFont('helvetica', 'normal')
+
       const voci = reg.payload?.voci_visualizzate || []
 
       if (voci.length === 0) {
@@ -1254,15 +1268,15 @@ export default function AppClient({
         voci.forEach((voce, voceIndex) => {
           const lines = splitText(doc, `${voceIndex + 1}. ${voce.testo}`, 175)
 
+          if (y > 270) {
+            doc.addPage()
+            y = 20
+          }
+
           lines.forEach((line: string) => {
-            if (y > 270) {
-              doc.addPage()
-              y = 20
-            }
             doc.text(line, 16, y)
             y += 6
           })
-
           y += 2
         })
       }
@@ -1273,9 +1287,10 @@ export default function AppClient({
       }
 
       y += 6
-      drawFirmaOperatore(doc, reg, y)
+      y = drawFirmaOperatore(doc, reg, y)
     })
 
+    const fileName = sanitizeFileName(`Registro_Checklist_${dataRegistro}_${azienda}.pdf`)
     doc.save(fileName)
   }
 
@@ -1325,44 +1340,27 @@ export default function AppClient({
     doc.save(fileName)
   }
 
-  async function exportRegistrazionePdf(reg: Registrazione) {
-    let regCompleta = reg
-
-    try {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('registrazioni')
-        .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-        .eq('id', reg.id)
-        .maybeSingle()
-
-      if (data) {
-        regCompleta = data as Registrazione
-      }
-    } catch {
-      regCompleta = reg
-    }
-
-    const tipo = regCompleta.payload?.tipo_registrazione
+  function exportRegistrazionePdf(reg: Registrazione) {
+    const tipo = reg.payload?.tipo_registrazione
 
     if (tipo === 'checklist') {
-      exportChecklistPdf(regCompleta)
+      exportChecklistPdf(reg)
       return
     }
 
     if (tipo === 'esercitazione') {
-      exportEsercitazionePdf(regCompleta)
+      exportEsercitazionePdf(reg)
       return
     }
 
     if (tipo === 'non_conformita') {
-      exportNonConformitaPdf(regCompleta)
+      exportNonConformitaPdf(reg)
       return
     }
 
-    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', regCompleta)
+    const { doc, azienda, scheda } = createBasePdf('Scheda registrazione', reg)
     doc.text('Formato registrazione non riconosciuto.', 14, 64)
-    const fileName = sanitizeFileName(`Registrazione_${regCompleta.data}_${azienda}_${scheda}.pdf`)
+    const fileName = sanitizeFileName(`Registrazione_${reg.data}_${azienda}_${scheda}.pdf`)
     doc.save(fileName)
   }
 
@@ -1485,165 +1483,205 @@ let y = ySchedaEnd + 16
     doc.save(titoloFile)
   }
 
-  async function exportRegistroCompletoPeriodoPdf() {
-    setErrore('')
+  function formatRegistroMensileLabel(value: string) {
+    if (!value || !/^\d{4}-\d{2}$/.test(value)) return value || '-'
+    const [anno, mese] = value.split('-')
+    const mesi = [
+      'gennaio',
+      'febbraio',
+      'marzo',
+      'aprile',
+      'maggio',
+      'giugno',
+      'luglio',
+      'agosto',
+      'settembre',
+      'ottobre',
+      'novembre',
+      'dicembre',
+    ]
+    return `${mesi[Number(mese) - 1] || mese} ${anno}`
+  }
 
-    if (!registroCompletoAziendaId) {
-      setErrore('Seleziona un’azienda per esportare il registro completo')
+  function exportRegistroMensileChecklistCompattoPdf() {
+    const aziendaId = isCliente && userAziendaId ? userAziendaId : registroMensileAziendaId
+
+    if (!aziendaId) {
+      setErrore('Seleziona una azienda per esportare il registro checklist')
       return
     }
 
-    if (!registroCompletoDataDa || !registroCompletoDataA) {
-      setErrore('Inserisci sia la data iniziale sia la data finale del periodo')
+    if (registroCompattoModo === 'mese' && !registroMensileMese) {
+      setErrore('Seleziona mese e anno per esportare il registro checklist')
       return
     }
 
-    if (registroCompletoDataDa > registroCompletoDataA) {
-      setErrore('La data iniziale non può essere successiva alla data finale')
-      return
+    if (registroCompattoModo === 'range') {
+      if (!registroCompattoDataDa || !registroCompattoDataA) {
+        setErrore('Seleziona data iniziale e data finale per esportare il registro checklist')
+        return
+      }
+
+      if (registroCompattoDataDa > registroCompattoDataA) {
+        setErrore('La data iniziale non può essere successiva alla data finale')
+        return
+      }
     }
 
-    const aziendaObj = aziende.find((a) => a.id === registroCompletoAziendaId)
-    if (!aziendaObj) {
+    const azienda = aziende.find((a) => a.id === aziendaId)
+    if (!azienda) {
       setErrore('Azienda non trovata')
       return
     }
 
-    const supabase = createClient()
-    const { data: regsData, error: regsError } = await supabase
-      .from('registrazioni')
-      .select('id, data, note, operatore_sigla, conferma, scheda_id, azienda_id, payload, firma_operatore_image')
-      .eq('azienda_id', registroCompletoAziendaId)
-      .gte('data', registroCompletoDataDa)
-      .lte('data', registroCompletoDataA)
-      .order('data', { ascending: true })
+    const periodoLabel =
+      registroCompattoModo === 'mese'
+        ? formatRegistroMensileLabel(registroMensileMese)
+        : `dal ${registroCompattoDataDa} al ${registroCompattoDataA}`
 
-    if (regsError) {
-      setErrore(`Errore durante il caricamento delle registrazioni: ${regsError.message}`)
-      return
-    }
+    const periodoFile =
+      registroCompattoModo === 'mese'
+        ? registroMensileMese
+        : `${registroCompattoDataDa}_${registroCompattoDataA}`
 
-    const regs = (regsData || []) as Registrazione[]
+    const regs = registrazioni
+      .filter((reg) => reg.azienda_id === aziendaId)
+      .filter((reg) => {
+        if (registroCompattoModo === 'mese') return reg.data?.startsWith(registroMensileMese)
+        return reg.data >= registroCompattoDataDa && reg.data <= registroCompattoDataA
+      })
+      .filter((reg) => reg.payload?.tipo_registrazione === 'checklist')
+      .sort((a, b) => {
+        const dataCompare = a.data.localeCompare(b.data)
+        if (dataCompare !== 0) return dataCompare
+        const ordineA = schede.find((s) => s.id === a.scheda_id)?.ordine ?? 999
+        const ordineB = schede.find((s) => s.id === b.scheda_id)?.ordine ?? 999
+        return ordineA - ordineB
+      })
 
     if (regs.length === 0) {
-      setErrore('Nessuna registrazione trovata per l’azienda e il periodo selezionati')
+      setErrore(
+        registroCompattoModo === 'mese'
+          ? 'Nessuna registrazione checklist trovata per il mese selezionato'
+          : 'Nessuna registrazione checklist trovata per il periodo selezionato'
+      )
       return
     }
 
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const azienda = aziendaObj.ragione_sociale
-    const periodo = `${registroCompletoDataDa} / ${registroCompletoDataA}`
-    const titoloFile = sanitizeFileName(
-      `Registro_Completo_${azienda}_${registroCompletoDataDa}_${registroCompletoDataA}.pdf`
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageWidth = 297
+    // Margini laterali PDF: 15,0 mm per lato. Area utile tabella: 267 mm.
+    const marginX = 15
+    const sigle = Array.from(
+      new Set(regs.map((reg) => reg.operatore_sigla || '').filter((value) => value.trim()))
     )
+    const siglaLabel = sigle.length === 1 ? sigle[0] : sigle.length > 1 ? 'varie' : '-'
 
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(18)
-    doc.text('Registro completo sorveglianza antincendio', 14, 24)
+    const columns = [
+      { label: 'n.', x: marginX, w: 10 },
+      { label: 'Scheda', x: marginX + 10, w: 60 },
+      { label: 'Data', x: marginX + 70, w: 20 },
+      { label: 'Descrizione controlli', x: marginX + 90, w: 117 },
+      { label: 'Note', x: marginX + 207, w: 60 },
+    ]
 
-    doc.setDrawColor(180)
-    doc.line(14, 32, 196, 32)
-
-    doc.setFontSize(11)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Azienda: ${azienda}`, 14, 46)
-    doc.text(`Sede: ${aziendaObj.sede || '-'}`, 14, 54)
-    doc.text(`Periodo: ${periodo}`, 14, 62)
-    doc.text(`Numero registrazioni: ${regs.length}`, 14, 70)
-    doc.text(`Data esportazione: ${new Date().toLocaleDateString('it-IT')}`, 14, 78)
-
-    doc.setFontSize(10)
-    doc.text(
-      'Il presente documento riepiloga le registrazioni di sorveglianza antincendio effettuate nel periodo indicato.',
-      14,
-      96,
-      { maxWidth: 180 }
-    )
-
-    regs.forEach((reg, index) => {
-      doc.addPage()
-
-      const scheda = nomeScheda(reg.scheda_id)
-      const tipo = reg.payload?.tipo_registrazione || 'registrazione'
-
+    function drawPageHeader() {
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(16)
-      doc.text('Registro sorveglianza antincendio', 14, 18)
-
-      doc.setFontSize(11)
-      doc.text(`Registrazione ${index + 1} di ${regs.length}`, 14, 27)
+      doc.setFontSize(15)
+      doc.text('Registro sorveglianza antincendio', marginX, 14)
+      doc.setFontSize(12)
+      doc.text('Scheda checklist compatta', marginX, 22)
 
       doc.setDrawColor(180)
-      doc.line(14, 32, 196, 32)
+      doc.line(marginX, 26, pageWidth - marginX, 26)
 
-      doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Azienda: ${azienda}`, 14, 42)
+      doc.setFontSize(9)
+      doc.text(`Azienda: ${azienda.ragione_sociale}`, marginX, 34)
+      doc.text(`Periodo: ${periodoLabel}`, marginX, 40)
+      doc.text(`Sigla operatore: ${siglaLabel}`, 210, 34)
+      if (azienda.sede) doc.text(`Sede: ${azienda.sede}`, 210, 40)
 
-      const schedaLines = doc.splitTextToSize(`Scheda: ${scheda}`, 100)
-      doc.text(schedaLines, 14, 48)
-      const ySchedaEnd = 48 + schedaLines.length * 6
+      let y = 50
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      columns.forEach((col) => {
+        doc.rect(col.x, y, col.w, 8)
+        doc.text(col.label, col.x + 1.5, y + 5.3)
+      })
+      doc.setFont('helvetica', 'normal')
+      return y + 8
+    }
 
-      doc.text(`Data: ${reg.data}`, 14, ySchedaEnd + 6)
-      doc.text(`Tipo: ${tipo}`, 120, 42)
-      doc.text(`Sigla operatore: ${reg.operatore_sigla || '-'}`, 120, 48)
+    let y = drawPageHeader()
+    const lineHeight = 4
+    const maxTableY = 178
 
-      let y = ySchedaEnd + 18
+    regs.forEach((reg, index) => {
+      const schedaTitolo = nomeScheda(reg.scheda_id)
+      const descrizione =
+        reg.payload?.voci_visualizzate?.map((voce) => voce.testo).join(' • ') || '-'
+      const note = reg.note || '--'
 
-      if (tipo === 'checklist') {
-        doc.setFont('helvetica', 'bold')
-        doc.text('Controlli previsti', 14, y)
-        y += 8
-        doc.setFont('helvetica', 'normal')
+      const schedaLines = doc.splitTextToSize(schedaTitolo, columns[1].w - 3)
+      const descrizioneLines = doc.splitTextToSize(descrizione, columns[3].w - 3)
+      const noteLines = doc.splitTextToSize(note, columns[4].w - 3)
+      const rowHeight = Math.max(
+        10,
+        Math.max(schedaLines.length, descrizioneLines.length, noteLines.length, 1) * lineHeight + 4
+      )
 
-        const voci = reg.payload?.voci_visualizzate || []
-        if (voci.length === 0) {
-          doc.text('Nessun controllo disponibile.', 14, y)
-          y += 8
-        } else {
-          voci.forEach((voce, idx) => {
-            const lines = splitText(doc, `${idx + 1}. ${voce.testo}`, 175)
-            lines.forEach((line: string) => {
-              if (y > 280) {
-                doc.addPage()
-                y = 20
-              }
-              doc.text(line, 16, y)
-              y += 6
-            })
-            y += 2
-          })
-        }
-      } else if (tipo === 'esercitazione') {
-        const p = reg.payload || {}
-        y = drawWrappedBlock(doc, 'Persone presenti:', p.persone_presenti || '-', y)
-        y = drawWrappedBlock(doc, 'Descrizione esercitazione:', p.descrizione || '-', y)
-        y = drawWrappedBlock(doc, 'Durata:', p.durata || '-', y)
-        y = drawWrappedBlock(doc, 'Osservazioni:', p.osservazioni || '-', y)
-        y = drawWrappedBlock(doc, 'Responsabile:', p.responsabile || '-', y)
-      } else if (tipo === 'non_conformita') {
-        const p = reg.payload || {}
-        y = drawWrappedBlock(doc, 'Descrizione non conformità:', p.descrizione_nc || '-', y)
-        y = drawWrappedBlock(doc, 'Azione correttiva:', p.azione_correttiva || '-', y)
-        y = drawWrappedBlock(doc, 'Documentazione prodotta:', p.documentazione || '-', y)
-        y = drawWrappedBlock(doc, 'Verifica finale:', p.verifica_finale || '-', y)
-        y = drawWrappedBlock(doc, 'Data chiusura:', p.data_chiusura || '-', y)
-      } else {
-        doc.text('Formato registrazione non riconosciuto.', 14, y)
-        y += 8
-      }
-
-      if (y > 250) {
+      if (y + rowHeight > maxTableY) {
         doc.addPage()
-        y = 20
+        y = drawPageHeader()
       }
 
-      y += 10
-      y = drawFirmaOperatore(doc, reg, y)
+      doc.setFontSize(7.5)
+      columns.forEach((col) => doc.rect(col.x, y, col.w, rowHeight))
+      doc.text(String(index + 1), columns[0].x + 1.5, y + 5)
+      schedaLines.forEach((line: string, i: number) =>
+        doc.text(line, columns[1].x + 1.5, y + 5 + i * lineHeight)
+      )
+      doc.text(reg.data, columns[2].x + 1.5, y + 5)
+      descrizioneLines.forEach((line: string, i: number) =>
+        doc.text(line, columns[3].x + 1.5, y + 5 + i * lineHeight)
+      )
+      noteLines.forEach((line: string, i: number) =>
+        doc.text(line, columns[4].x + 1.5, y + 5 + i * lineHeight)
+      )
+      y += rowHeight
     })
 
-    doc.save(titoloFile)
-    setStatus('Registro completo PDF generato correttamente.')
+    if (y > 170) {
+      doc.addPage()
+      y = drawPageHeader()
+    }
+
+    const firmaReg = regs.find((reg) => reg.firma_operatore_image) || regs[0]
+    const firmaY = 185
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Firma operatore', marginX, firmaY)
+
+    if (firmaReg?.firma_operatore_image) {
+      try {
+        doc.addImage(firmaReg.firma_operatore_image, 'PNG', marginX, firmaY + 3, 55, 18)
+      } catch {
+        doc.line(marginX, firmaY + 4, marginX + 70, firmaY + 4)
+      }
+    } else {
+      doc.line(marginX, firmaY + 4, marginX + 70, firmaY + 4)
+    }
+
+    doc.setFontSize(8)
+    doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - 35, 202)
+
+    const fileName = sanitizeFileName(
+      `Registro_checklist_compatto_${periodoFile}_${azienda.ragione_sociale}.pdf`
+    )
+    doc.save(fileName)
+    setErrore('')
+    setStatus('Registro checklist compatto generato correttamente')
   }
 
   const aziendaDettaglio = useMemo(() => {
@@ -1844,23 +1882,22 @@ let y = ySchedaEnd + 16
               <div className="mt-2 text-3xl font-bold text-green-600">{totaleScadenzeCompletate}</div>
             </div>
           </div>
-
           <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-slate-800">
-                  Esporta registro completo
+                  Esporta registro checklist compatto
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Genera un unico PDF con tutte le registrazioni di una azienda nel periodo selezionato.
+                  Genera una scheda compatta in formato orizzontale per mese/anno oppure per intervallo di date.
                 </p>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-4">
+            <div className="mt-4 grid gap-4 md:grid-cols-5">
               <select
-                value={registroCompletoAziendaId}
-                onChange={(e) => setRegistroCompletoAziendaId(e.target.value)}
+                value={registroMensileAziendaId}
+                onChange={(e) => setRegistroMensileAziendaId(e.target.value)}
                 className="rounded border border-slate-300 p-3"
               >
                 <option value="">Seleziona azienda</option>
@@ -1871,32 +1908,45 @@ let y = ySchedaEnd + 16
                 ))}
               </select>
 
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">Data da</label>
-                <input
-                  type="date"
-                  value={registroCompletoDataDa}
-                  onChange={(e) => setRegistroCompletoDataDa(e.target.value)}
-                  className="w-full rounded border border-slate-300 p-3"
-                />
-              </div>
+              <select
+                value={registroCompattoModo}
+                onChange={(e) => setRegistroCompattoModo(e.target.value as 'mese' | 'range')}
+                className="rounded border border-slate-300 p-3"
+              >
+                <option value="mese">Mese / anno</option>
+                <option value="range">Data da / data a</option>
+              </select>
 
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">Data a</label>
+              {registroCompattoModo === 'mese' ? (
                 <input
-                  type="date"
-                  value={registroCompletoDataA}
-                  onChange={(e) => setRegistroCompletoDataA(e.target.value)}
-                  className="w-full rounded border border-slate-300 p-3"
+                  type="month"
+                  value={registroMensileMese}
+                  onChange={(e) => setRegistroMensileMese(e.target.value)}
+                  className="rounded border border-slate-300 p-3 md:col-span-2"
                 />
-              </div>
+              ) : (
+                <>
+                  <input
+                    type="date"
+                    value={registroCompattoDataDa}
+                    onChange={(e) => setRegistroCompattoDataDa(e.target.value)}
+                    className="rounded border border-slate-300 p-3"
+                  />
+                  <input
+                    type="date"
+                    value={registroCompattoDataA}
+                    onChange={(e) => setRegistroCompattoDataA(e.target.value)}
+                    className="rounded border border-slate-300 p-3"
+                  />
+                </>
+              )}
 
               <button
                 type="button"
-                onClick={exportRegistroCompletoPeriodoPdf}
+                onClick={exportRegistroMensileChecklistCompattoPdf}
                 className="rounded bg-indigo-600 px-4 py-3 text-white"
               >
-                Genera registro PDF
+                Genera PDF compatto
               </button>
             </div>
           </div>
@@ -2604,6 +2654,57 @@ let y = ySchedaEnd + 16
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="text-lg font-semibold text-slate-800">
+              Esporta registro checklist compatto
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Genera una scheda compatta con tutte le checklist registrate per mese oppure per intervallo di date.
+            </p>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-4">
+              <select
+                value={registroCompattoModo}
+                onChange={(e) => setRegistroCompattoModo(e.target.value as 'mese' | 'range')}
+                className="rounded border border-slate-300 p-3"
+              >
+                <option value="mese">Mese / anno</option>
+                <option value="range">Data da / data a</option>
+              </select>
+
+              {registroCompattoModo === 'mese' ? (
+                <input
+                  type="month"
+                  value={registroMensileMese}
+                  onChange={(e) => setRegistroMensileMese(e.target.value)}
+                  className="rounded border border-slate-300 p-3 md:col-span-2"
+                />
+              ) : (
+                <>
+                  <input
+                    type="date"
+                    value={registroCompattoDataDa}
+                    onChange={(e) => setRegistroCompattoDataDa(e.target.value)}
+                    className="rounded border border-slate-300 p-3"
+                  />
+                  <input
+                    type="date"
+                    value={registroCompattoDataA}
+                    onChange={(e) => setRegistroCompattoDataA(e.target.value)}
+                    className="rounded border border-slate-300 p-3"
+                  />
+                </>
+              )}
+
+              <button
+                type="button"
+                onClick={exportRegistroMensileChecklistCompattoPdf}
+                className="rounded bg-indigo-600 px-4 py-3 text-white"
+              >
+                Genera PDF compatto
+              </button>
+            </div>
           </div>
         </div>
       )}
