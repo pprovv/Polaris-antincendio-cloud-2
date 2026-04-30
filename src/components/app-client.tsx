@@ -1597,10 +1597,13 @@ let y = ySchedaEnd + 16
 
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
-      doc.text(`Azienda: ${azienda.ragione_sociale}`, marginX, 34)
+      doc.text(`Azienda: ${azienda?.ragione_sociale || 'Azienda non specificata'}`, marginX, 34)
       doc.text(`Periodo: ${periodoLabel}`, marginX, 40)
       doc.text(`Sigla operatore: ${siglaLabel}`, 210, 34)
-      if (azienda.sede) doc.text(`Sede: ${azienda.sede}`, 210, 40)
+
+      if (azienda?.sede) {
+        doc.text(`Sede: ${azienda.sede}`, 210, 40)
+      }
 
       let y = 50
       doc.setFont('helvetica', 'bold')
